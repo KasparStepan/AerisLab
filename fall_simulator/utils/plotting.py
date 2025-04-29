@@ -66,6 +66,36 @@ def plot_energy_vs_time(times, kinetic, potential, spring_energy):
     plt.tight_layout()
     plt.show()
 
+def plot_acceleration_vs_time(times, accelerations):
+    """
+    Plot X, Y, Z acceleration components vs time.
+    
+    Parameters:
+    - times: np.ndarray of time points
+    - accelerations: np.ndarray (N, 3) of accelerations
+    """
+    fig, axs = plt.subplots(3, 1, figsize=(10, 8), sharex=True)
+
+    axs[0].plot(times, accelerations[:, 0], label='Ax', color='blue')
+    axs[0].set_ylabel('Ax (m/s²)')
+    axs[0].legend()
+    axs[0].grid(True)
+
+    axs[1].plot(times, accelerations[:, 1], label='Ay', color='green')
+    axs[1].set_ylabel('Ay (m/s²)')
+    axs[1].legend()
+    axs[1].grid(True)
+
+    axs[2].plot(times, accelerations[:, 2], label='Az', color='red')
+    axs[2].set_ylabel('Az (m/s²)')
+    axs[2].set_xlabel('Time (s)')
+    axs[2].legend()
+    axs[2].grid(True)
+
+    fig.suptitle('Payload Acceleration vs Time')
+    plt.tight_layout()
+    plt.show()
+
 def animate_multibody_3d(trajectory_payload, trajectory_parachute, interval=30):
     """
     Animate payload and parachute motion in 3D.

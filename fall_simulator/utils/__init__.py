@@ -15,4 +15,5 @@ from .plotting import (
     plot_position_vs_time,
     plot_energy_vs_time,
     animate_multibody_3d,
+    plot_acceleration_vs_time,
 )

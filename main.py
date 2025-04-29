@@ -5,6 +5,7 @@ from fall_simulator.utils import (
     plot_trajectory,
     plot_position_vs_time,
     plot_energy_vs_time,
+    plot_acceleration_vs_time,
     animate_multibody_3d,
 )
 import numpy as np
@@ -35,10 +36,10 @@ def main():
         orientation=[1.0, 0.0, 0.0, 0.0],
         angular_velocity=[0.0, 0.0, 0.0],
         area=15.0,
-        drag_coefficient=0.0
+        drag_coefficient=0.0  # parachute initially closed
     )
 
-    # Cable
+    # Cable between payload and parachute
     cable = Cable(rest_length=5.0, stiffness=100.0, damping=20.0)
 
     # Data storage
@@ -50,11 +51,22 @@ def main():
     energies_potential = []
     energies_spring = []
 
+    velocities_payload = []
+
     for step in range(steps):
         t = step * dt
 
-        # Parachute inflation
-        if t > 2.0:
+        # Store velocity for acceleration calculation
+        velocities_payload.append(payload.velocity.copy())
+
+        # Deploy parachute based on payload vertical velocity
+        v_threshold = 20.0  # m/s
+        if parachute.drag_coefficient == 0.0 and payload.velocity[2] < -v_threshold:
+            print(f"Parachute deployed at t = {t:.2f} s, altitude = {payload.position[2]:.2f} m")
+            parachute.drag_coefficient = 0.1
+
+        # Gradual inflation of parachute
+        if parachute.drag_coefficient > 0.0 and parachute.drag_coefficient < 1.5:
             parachute.drag_coefficient = min(1.5, parachute.drag_coefficient + 0.02)
 
         # Cable forces
@@ -72,7 +84,7 @@ def main():
         payload.set_state(next_payload_state)
         parachute.set_state(next_parachute_state)
 
-        # Store data
+        # Store trajectories
         trajectory_payload.append(payload.position.copy())
         trajectory_parachute.append(parachute.position.copy())
         times.append(t)
@@ -92,22 +104,25 @@ def main():
         energies_spring.append(spring_energy)
 
         if payload.position[2] <= 0.0:
-            print(f"Payload landed at {t:.2f}s")
+            print(f"Payload landed at {t:.2f} seconds")
             break
 
     # Convert to arrays
     trajectory_payload = np.array(trajectory_payload)
     trajectory_parachute = np.array(trajectory_parachute)
+    velocities_payload = np.array(velocities_payload)
     times = np.array(times)
 
-    # Plots
-    plot_trajectory(trajectory_payload, label="Payload")
-    plot_trajectory(trajectory_parachute, label="Parachute")
+    # Compute accelerations numerically
+    accelerations_payload = np.diff(velocities_payload, axis=0) / dt
+    times_accel = (times[:-1] + times[1:]) / 2
+
+    # Plot results
+    plot_trajectory(trajectory_payload, label="Payload Trajectory")
+    plot_trajectory(trajectory_parachute, label="Parachute Trajectory")
     plot_position_vs_time(times, trajectory_payload)
-    plot_energy_vs_time(times,
-                        np.array(energies_kinetic),
-                        np.array(energies_potential),
-                        np.array(energies_spring))
+    plot_energy_vs_time(times, np.array(energies_kinetic), np.array(energies_potential), np.array(energies_spring))
+    plot_acceleration_vs_time(times_accel, accelerations_payload)
     animate_multibody_3d(trajectory_payload, trajectory_parachute)
 
 if __name__ == "__main__":
