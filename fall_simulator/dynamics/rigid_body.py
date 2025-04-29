@@ -4,19 +4,17 @@ from fall_simulator.dynamics.forces import gravity_force, parachute_drag_force
 
 class RigidBody6DOF:
     def __init__(self, mass, inertia_tensor, position, velocity, orientation, angular_velocity):
-        """
-        Initializes the rigid body object with parachute logic.
-        """
         self.mass = mass
         self.inertia = inertia_tensor
-
         self.position = np.array(position, dtype=float)
         self.velocity = np.array(velocity, dtype=float)
         self.orientation = np.array(orientation, dtype=float)
         self.angular_velocity = np.array(angular_velocity, dtype=float)
-
         self.gravity = np.array([0.0, 0.0, -9.81])
-        self.parachute_deployed = False  # New attribute
+
+        # 🚨 Add this
+        self.parachute_deployed = False
+
 
     def derivative(self):
         """
