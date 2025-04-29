@@ -1,92 +1,114 @@
 from fall_simulator.dynamics import RigidBody6DOF
 from fall_simulator.integration import rk4_step
 from fall_simulator.multibody import Cable
-from fall_simulator.utils import plot_trajectory, plot_position_vs_time
+from fall_simulator.utils import (
+    plot_trajectory,
+    plot_position_vs_time,
+    plot_energy_vs_time,
+    animate_multibody_3d,
+)
 import numpy as np
 
 def main():
-    dt = 0.01  # Time step (s)
-    total_time = 60.0  # seconds
+    dt = 0.01
+    total_time = 60.0
     steps = int(total_time / dt)
 
-    # Payload (heavy)
-    payload_mass = 80.0  # kg
-    payload_inertia = np.diag([10.0, 10.0, 5.0])
+    # Create payload
     payload = RigidBody6DOF(
-        mass=payload_mass,
-        inertia_tensor=payload_inertia,
+        mass=80.0,
+        inertia_tensor=np.diag([10.0, 10.0, 5.0]),
         position=[0.0, 0.0, 1000.0],
         velocity=[5.0, 0.0, 0.0],
         orientation=[1.0, 0.0, 0.0, 0.0],
         angular_velocity=[0.0, 0.0, 0.0],
-        area=0.5,  # small frontal area
+        area=0.5,
         drag_coefficient=0.5
     )
 
-    # Parachute (light, high drag)
-    parachute_mass = 5.0  # kg
-    parachute_inertia = np.diag([1.0, 1.0, 0.5])
+    # Create parachute
     parachute = RigidBody6DOF(
-        mass=parachute_mass,
-        inertia_tensor=parachute_inertia,
-        position=[0.0, 0.0, 995.0],  # slightly above payload
+        mass=5.0,
+        inertia_tensor=np.diag([1.0, 1.0, 0.5]),
+        position=[0.0, 0.0, 995.0],
         velocity=[5.0, 0.0, 0.0],
         orientation=[1.0, 0.0, 0.0, 0.0],
         angular_velocity=[0.0, 0.0, 0.0],
-        area=15.0,  # big area
-        drag_coefficient=0.0  # 0 at start, inflate later
+        area=15.0,
+        drag_coefficient=0.0
     )
 
-    # Cable connecting payload and parachute
-    cable = Cable(
-        rest_length=5.0,     # meters
-        stiffness=100.0,     # N/m
-        damping=20.0         # N·s/m
-    )
+    # Cable
+    cable = Cable(rest_length=5.0, stiffness=100.0, damping=20.0)
 
+    # Data storage
     trajectory_payload = []
     trajectory_parachute = []
     times = []
 
+    energies_kinetic = []
+    energies_potential = []
+    energies_spring = []
+
     for step in range(steps):
         t = step * dt
 
-        # Parachute inflation (simulate slow inflation)
-        if t > 2.0:  # after 2 seconds
+        # Parachute inflation
+        if t > 2.0:
             parachute.drag_coefficient = min(1.5, parachute.drag_coefficient + 0.02)
 
-        # Compute cable force
-        force_on_payload = cable.compute_force(payload.position, payload.velocity, parachute.position, parachute.velocity)
+        # Cable forces
+        force_on_payload = cable.compute_force(payload.position, payload.velocity,
+                                               parachute.position, parachute.velocity)
         force_on_parachute = -force_on_payload
 
         # RK4 integration
         payload_state = payload.get_state()
         parachute_state = parachute.get_state()
 
-        # Lambda for each body's derivative with external forces
-        payload_next_state = rk4_step(payload_state, lambda s: payload.derivative(force_on_payload), dt)
-        parachute_next_state = rk4_step(parachute_state, lambda s: parachute.derivative(force_on_parachute), dt)
+        next_payload_state = rk4_step(payload_state, lambda s: payload.derivative(force_on_payload), dt)
+        next_parachute_state = rk4_step(parachute_state, lambda s: parachute.derivative(force_on_parachute), dt)
 
-        payload.set_state(payload_next_state)
-        parachute.set_state(parachute_next_state)
+        payload.set_state(next_payload_state)
+        parachute.set_state(next_parachute_state)
 
-        # Record trajectories
+        # Store data
         trajectory_payload.append(payload.position.copy())
         trajectory_parachute.append(parachute.position.copy())
         times.append(t)
 
-        # Stop simulation when payload touches ground
+        # Energies
+        ke = 0.5 * payload.mass * np.linalg.norm(payload.velocity)**2 + \
+             0.5 * parachute.mass * np.linalg.norm(parachute.velocity)**2
+
+        g = 9.81
+        pe = payload.mass * g * payload.position[2] + parachute.mass * g * parachute.position[2]
+
+        stretch = np.linalg.norm(parachute.position - payload.position) - cable.rest_length
+        spring_energy = 0.5 * cable.stiffness * stretch**2
+
+        energies_kinetic.append(ke)
+        energies_potential.append(pe)
+        energies_spring.append(spring_energy)
+
         if payload.position[2] <= 0.0:
-            print(f"Payload landed at time {t:.2f} seconds")
+            print(f"Payload landed at {t:.2f}s")
             break
 
+    # Convert to arrays
     trajectory_payload = np.array(trajectory_payload)
     trajectory_parachute = np.array(trajectory_parachute)
     times = np.array(times)
 
-    # Plot results
-    plot_trajectory(trajectory_payload)
+    # Plots
+    plot_trajectory(trajectory_payload, label="Payload")
+    plot_trajectory(trajectory_parachute, label="Parachute")
     plot_position_vs_time(times, trajectory_payload)
+    plot_energy_vs_time(times,
+                        np.array(energies_kinetic),
+                        np.array(energies_potential),
+                        np.array(energies_spring))
+    animate_multibody_3d(trajectory_payload, trajectory_parachute)
 
 if __name__ == "__main__":
     main()
