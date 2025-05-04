@@ -3,7 +3,7 @@ import matplotlib.pyplot as plt
 from mpl_toolkits.mplot3d import Axes3D
 import matplotlib.animation as animation
 
-def plot_trajectory(trajectory, label="Trajectory"):
+def plot_trajectory(trajectory, label="Trajectory", save_path=None):
     """
     Plots 3D trajectory of a body.
     """
@@ -18,9 +18,11 @@ def plot_trajectory(trajectory, label="Trajectory"):
     ax.grid(True)
     ax.view_init(elev=30, azim=135)
     plt.tight_layout()
+    if save_path:
+        plt.savefig(save_path)
     plt.show()
 
-def plot_position_vs_time(times, trajectory):
+def plot_position_vs_time(times, trajectory, save_path=None):
     """
     Plot X, Y, Z position components vs time.
     """
@@ -44,11 +46,13 @@ def plot_position_vs_time(times, trajectory):
 
     fig.suptitle('Position vs Time')
     plt.tight_layout()
+    if save_path:
+        plt.savefig(save_path)
     plt.show()
 
-def plot_energy_vs_time(times, kinetic, potential, spring_energy):
+def plot_energy_vs_time(times, kinetic, potential, spring_energy, save_path=None):
     """
-    Plot energies over time: KE, PE, spring, and total.
+    Plot energies over time: KE, PE, Spring, and total.
     """
     total = kinetic + potential + spring_energy
 
@@ -64,15 +68,13 @@ def plot_energy_vs_time(times, kinetic, potential, spring_energy):
     plt.legend()
     plt.grid(True)
     plt.tight_layout()
+    if save_path:
+        plt.savefig(save_path)
     plt.show()
 
-def plot_acceleration_vs_time(times, accelerations):
+def plot_acceleration_vs_time(times, accelerations, save_path=None):
     """
     Plot X, Y, Z acceleration components vs time.
-    
-    Parameters:
-    - times: np.ndarray of time points
-    - accelerations: np.ndarray (N, 3) of accelerations
     """
     fig, axs = plt.subplots(3, 1, figsize=(10, 8), sharex=True)
 
@@ -94,6 +96,8 @@ def plot_acceleration_vs_time(times, accelerations):
 
     fig.suptitle('Payload Acceleration vs Time')
     plt.tight_layout()
+    if save_path:
+        plt.savefig(save_path)
     plt.show()
 
 def animate_multibody_3d(trajectory_payload, trajectory_parachute, interval=30):
@@ -132,4 +136,37 @@ def animate_multibody_3d(trajectory_payload, trajectory_parachute, interval=30):
     ax.set_title('3D Multibody Animation')
     ax.legend()
     plt.tight_layout()
+    plt.show()
+
+
+def plot_velocity_vs_time(times, velocities, save_path=None):
+    """
+    Plot X, Y, Z velocity components vs time.
+
+    Parameters:
+    - times: np.ndarray of time points
+    - velocities: np.ndarray (N, 3) of velocities
+    """
+    fig, axs = plt.subplots(3, 1, figsize=(10, 8), sharex=True)
+
+    axs[0].plot(times, velocities[:, 0], label='Vx', color='blue')
+    axs[0].set_ylabel('Vx (m/s)')
+    axs[0].legend()
+    axs[0].grid(True)
+
+    axs[1].plot(times, velocities[:, 1], label='Vy', color='green')
+    axs[1].set_ylabel('Vy (m/s)')
+    axs[1].legend()
+    axs[1].grid(True)
+
+    axs[2].plot(times, velocities[:, 2], label='Vz', color='red')
+    axs[2].set_ylabel('Vz (m/s)')
+    axs[2].set_xlabel('Time (s)')
+    axs[2].legend()
+    axs[2].grid(True)
+
+    fig.suptitle('Payload Velocity vs Time')
+    plt.tight_layout()
+    if save_path:
+        plt.savefig(save_path)
     plt.show()
