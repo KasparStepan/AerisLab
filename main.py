@@ -1,5 +1,5 @@
 from fall_simulator.dynamics import RigidBody6DOF
-from fall_simulator.integration import semi_implicit_step
+from fall_simulator.integration import fully_implicit_step
 from fall_simulator.multibody import Cable
 from fall_simulator.utils import *
 import numpy as np
@@ -108,8 +108,8 @@ def main():
         payload_state = payload.get_state()
         parachute_state = parachute.get_state()
 
-        next_payload_state = semi_implicit_step(payload_state, lambda s: payload.derivative(force_on_payload), dt)
-        next_parachute_state = semi_implicit_step(parachute_state, lambda s: parachute.derivative(force_on_parachute), dt)
+        next_payload_state = fully_implicit_step(payload_state, lambda s: payload.derivative(force_on_payload), dt)
+        next_parachute_state = fully_implicit_step(parachute_state, lambda s: parachute.derivative(force_on_parachute), dt)
 
         payload.set_state(next_payload_state)
         parachute.set_state(next_parachute_state)

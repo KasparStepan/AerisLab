@@ -2,40 +2,36 @@ import numpy as np
 
 def semi_implicit_step(state, derivative_func, dt):
     """
-    Performs one time step using the semi-implicit Euler method.
+    Semi-implicit Euler integration step for 6DOF rigid body.
 
-    state: current state vector (pos, vel, quat, omega)
-    derivative_func: function that computes derivatives from current state
-    dt: time step
+    state: current [pos, vel, quat, omega]
+    derivative_func: function(state) → dstate
+    dt: timestep
     """
-    # Unpack state
     pos = state[0:3]
     vel = state[3:6]
     quat = state[6:10]
     omega = state[10:13]
 
-    # Compute acceleration and angular acceleration
     dstate = derivative_func(state)
     accel = dstate[3:6]
     alpha = dstate[10:13]
 
-    # Semi-implicit: update velocities first
+    # Update velocities first (semi-implicit)
     vel_new = vel + accel * dt
     omega_new = omega + alpha * dt
 
-    # Then update position and orientation
+    # Then update positions using new velocity
     pos_new = pos + vel_new * dt
 
-    # Simple quaternion update (you can replace with exact if needed)
+    # Update quaternion (rotation)
     quat_new = quat + 0.5 * dt * quat_omega(omega_new) @ quat
     quat_new /= np.linalg.norm(quat_new)
 
-    # Combine new state
-    new_state = np.concatenate([pos_new, vel_new, quat_new, omega_new])
-    return new_state
+    return np.concatenate([pos_new, vel_new, quat_new, omega_new])
+
 
 def quat_omega(omega):
-    """Quaternion multiplication matrix for dq/dt = 0.5 * omega_matrix * q"""
     wx, wy, wz = omega
     return np.array([
         [0.0, -wx, -wy, -wz],
