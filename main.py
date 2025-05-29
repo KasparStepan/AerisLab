@@ -1,8 +1,37 @@
 from fall_simulator.dynamics import RigidBody6DOF
-from fall_simulator.integration import rk4_step
+from fall_simulator.integration import semi_implicit_step
 from fall_simulator.multibody import Cable
 from fall_simulator.utils import *
 import numpy as np
+
+
+def compute_parachute_drag_coefficient(t_since_deploy, v):
+    Cd_steady = 0.8
+    Cd_peak = 2 * Cd_steady  # 1.6
+    n = 0.8
+    D = 4.0
+
+    # Avoid division by zero
+    v = max(abs(v), 0.1)
+
+    t_inflation = n * D / v
+    t_breathing = 0.2
+
+    if t_since_deploy < t_inflation:
+        # Stage 1: Inflation
+        s = t_since_deploy / t_inflation
+        s = np.clip(s, 0.0, 1.0)
+        Cd = Cd_peak * (3 * s**2 - 2 * s**3)
+    elif t_since_deploy < t_inflation + t_breathing:
+        # Stage 2: Breathing
+        s = (t_since_deploy - t_inflation) / t_breathing
+        s = np.clip(s, 0.0, 1.0)
+        Cd = Cd_peak - (Cd_peak - Cd_steady) * (s**2)
+    else:
+        # Stage 3: Steady
+        Cd = Cd_steady
+
+    return Cd
 
 
 def main():
@@ -30,14 +59,13 @@ def main():
         velocity=[0.0, 0.0, -50.0],
         orientation=[1.0, 0.0, 0.0, 0.0],
         angular_velocity=[0.0, 0.0, 0.0],
-        area=15.0,
+        area=1.414 * 18,
         drag_coefficient=0.0  # parachute initially closed
     )
 
-    # Cable between payload and parachute
-    cable = Cable(rest_length=5.0, stiffness=100.0, damping=20.0)
+    cable = Cable(rest_length=5.0, damping=200.0, mode='constraint')
 
-    # Data storage
+
     trajectory_payload = []
     trajectory_parachute = []
     times = []
@@ -48,21 +76,28 @@ def main():
 
     velocities_payload = []
 
+    # New state variables for parachute model
+    parachute_deployed = False
+    deploy_time = None
+
     for step in range(steps):
         t = step * dt
-
-        # Store velocity for acceleration calculation
         velocities_payload.append(payload.velocity.copy())
 
-        # Deploy parachute based on payload vertical velocity
-        v_threshold = 80.0  # m/s
-        if parachute.drag_coefficient == 0.0 and payload.velocity[2] < -v_threshold:
-            print(f"Parachute deployed at t = {t:.2f} s, altitude = {payload.position[2]:.2f} m")
-            parachute.drag_coefficient = 0.1
+        v_threshold =60.0  # m/s
+        v_vertical = payload.velocity[2]
 
-        # Gradual inflation of parachute
-        if parachute.drag_coefficient > 0.0 and parachute.drag_coefficient < 1.5:
-            parachute.drag_coefficient = min(1.5, parachute.drag_coefficient + 0.02)
+        # Check for deployment trigger
+        if not parachute_deployed and v_vertical < -v_threshold:
+            parachute_deployed = True
+            deploy_time = t
+            print(f"Parachute deployed at t = {t:.2f} s, altitude = {payload.position[2]:.2f} m")
+
+        # Update drag coefficient based on deployment stage
+        if parachute_deployed:
+            time_since_deploy = t - deploy_time
+            v_mag = np.linalg.norm(parachute.velocity)
+            parachute.drag_coefficient = compute_parachute_drag_coefficient(time_since_deploy, v_mag)
 
         # Cable forces
         force_on_payload = cable.compute_force(payload.position, payload.velocity,
@@ -73,8 +108,8 @@ def main():
         payload_state = payload.get_state()
         parachute_state = parachute.get_state()
 
-        next_payload_state = rk4_step(payload_state, lambda s: payload.derivative(force_on_payload), dt)
-        next_parachute_state = rk4_step(parachute_state, lambda s: parachute.derivative(force_on_parachute), dt)
+        next_payload_state = semi_implicit_step(payload_state, lambda s: payload.derivative(force_on_payload), dt)
+        next_parachute_state = semi_implicit_step(parachute_state, lambda s: parachute.derivative(force_on_parachute), dt)
 
         payload.set_state(next_payload_state)
         parachute.set_state(next_parachute_state)
@@ -113,12 +148,9 @@ def main():
     times_accel = (times[:-1] + times[1:]) / 2
 
     # Plot results
-    #plot_trajectory(trajectory_payload, label="Payload Trajectory")
-    #plot_trajectory(trajectory_parachute, label="Parachute Trajectory")
     plot_position_vs_time(times, trajectory_payload, save_path="outputs/position_vs_time.png")
     plot_energy_vs_time(times, np.array(energies_kinetic), np.array(energies_potential), np.array(energies_spring), save_path="outputs/energy_vs_time.png")
     plot_acceleration_vs_time(times_accel, accelerations_payload, save_path="outputs/acceleration_vs_time.png")
-    #animate_multibody_3d(trajectory_payload, trajectory_parachute)
     plot_velocity_vs_time(times, velocities_payload, save_path="outputs/velocity_vs_time.png")
     create_pdf_report("outputs/flight_report.pdf")
 
