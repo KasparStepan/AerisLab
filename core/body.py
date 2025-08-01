@@ -28,7 +28,7 @@ class RigidBody6DOF:
 
     def apply_force(self, force):
         """Apply a force to the body, optionally at a specific point in world coordinates."""
-        self.force = force
+        self.force += np.array(force, dtype=np.float64)
         print(f"[FORCE1] apply_force Applied force on {self.name}: {self.force}")
         print(self.force)
         

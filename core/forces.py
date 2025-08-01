@@ -31,7 +31,8 @@ class DragForce:
 
         if speed > 1e-6:
             if self.model == 'quadratic':
-                drag_force = -0.5 * self.rho * self.Cd * self.area * speed * (v/speed)
+                drag_force = -0.5 * self.rho * self.Cd * self.area * speed * v
+                
                 
             elif self.model == 'linear':
                 drag_force = -self.Cd * speed * (v/speed)

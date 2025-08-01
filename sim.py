@@ -9,11 +9,11 @@ world = World(dt=0.01, integrator='semi')
 # Payload
 payload = RigidBody6DOF(
     name='payload',
-    mass=10,
+    mass=1,
     inertia_tensor=[[1, 0, 0], [0, 1, 0], [0, 0, 1]],
-    position=[0, 0, 10],
+    position=[0, 0, 20],
     orientation=[0, 0, 0, 1],
-    linear_velocity=[0, 0, 0],
+    linear_velocity=[0, 0, 10],
     angular_velocity=[0, 0, 0]
 )
 
@@ -32,8 +32,8 @@ payload = RigidBody6DOF(
 gravity = GravityForce([0, 0, -9.81])
 world.add_global_force(gravity)
 
-# payload_drag = DragForce(rho=1.2, Cd=0.47, area=0.01)
-# payload.forces.append(payload_drag)
+payload_drag = DragForce(rho=1.2, Cd=0.47, area=0.1)
+payload.forces.append(payload_drag)
 
 # drag_parachute = DragForce(rho=1.2, Cd=1.5, area=10)
 # parachute.forces.append(drag_parachute)
@@ -52,10 +52,10 @@ world.add_global_force(gravity)
 world.add_body(payload)
 # world.add_body(parachute)
 
-world.run(duration=20.0)
+world.run(duration=5.0)
 
 # world.logger.print_all_logs()
-world.logger.save_to_csv('simulation_log.csv')
+#world.logger.save_to_csv('simulation_log.csv')
 world.logger.plot_property('Pos_Z', 'payload', title='Payload Z-Position vs Time', ylabel='Z-Position (m)')
 
 # Run and log
