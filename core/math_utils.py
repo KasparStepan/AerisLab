@@ -123,3 +123,10 @@ def kinetic_energy(body):
 
 def potential_energy(body, gravity):
     return -body.mass * np.dot(gravity, body.position)
+
+def skew(v):
+    """Skew-symmetric matrix for cross product: skew(v) @ w = v X w."""
+    x, y, z = v
+    return np.array([[ 0, -z,  y],
+                     [ z,  0, -x],
+                     [-y,  x,  0]], dtype=np.float64)
