@@ -1,34 +1,35 @@
 from __future__ import annotations
 import csv
-from dataclasses import dataclass
-from typing import Iterable
+from pathlib import Path
 
-@dataclass
 class CSVLogger:
-    """Very small CSV logger; avoids heavy deps so tests run light-weight."""
-    path: str
-    write_header: bool = True
-    _header_written: bool = False
+    """Minimal CSV logger for body states and resultant forces/torques."""
+    def __init__(self, path: str | Path) -> None:
+        self.path = Path(path)
+        self._fp = self.path.open("w", newline="")
+        self._w = csv.writer(self._fp)
+        self._w.writerow(self._header_written_example())
+        self._fp.flush()
 
-    def log(self, time: float, bodies: Iterable["RigidBody6DOF"]) -> None:
-        rows = []
-        for b in bodies:
-            rows.append({
-                "time": time,
-                "body": b.name,
-                "px": b.position[0], "py": b.position[1], "pz": b.position[2],
-                "qx": b.orientation[0], "qy": b.orientation[1],
-                "qz": b.orientation[2], "qw": b.orientation[3],
-                "vx": b.linear_velocity[0], "vy": b.linear_velocity[1], "vz": b.linear_velocity[2],
-                "wx": b.angular_velocity[0], "wy": b.angular_velocity[1], "wz": b.angular_velocity[2],
-                "fx": b.force[0], "fy": b.force[1], "fz": b.force[2],
-                "tx": b.torque[0], "ty": b.torque[1], "tz": b.torque[2],
-            })
-        if not rows:
-            return
-        with open(self.path, "a", newline="") as f:
-            writer = csv.DictWriter(f, fieldnames=list(rows[0].keys()))
-            if self.write_header and not self._header_written:
-                writer.writeheader()
-                self._header_written = True
-            writer.writerows(rows)
+    def _header_written_example(self):
+        cols = ["time"]
+        # We don't know bodies yet; write flexible header instructions
+        cols.append("NOTE: Columns repeat per body: name,p_x,p_y,p_z,q_w,q_x,q_y,q_z,v_x,v_y,v_z,w_x,w_y,w_z,F_x,F_y,F_z,T_x,T_y,T_z")
+        return cols
+
+    def write(self, t: float, world) -> None:
+        row = [f"{t:.9f}"]
+        for b in world.bodies:
+            row.extend([
+                b.name, f"{b.p[0]:.9e}", f"{b.p[1]:.9e}", f"{b.p[2]:.9e}",
+                f"{b.q[0]:.9e}", f"{b.q[1]:.9e}", f"{b.q[2]:.9e}", f"{b.q[3]:.9e}",
+                f"{b.v[0]:.9e}", f"{b.v[1]:.9e}", f"{b.v[2]:.9e}",
+                f"{b.w[0]:.9e}", f"{b.w[1]:.9e}", f"{b.w[2]:.9e}",
+                f"{b.F[0]:.9e}", f"{b.F[1]:.9e}", f"{b.F[2]:.9e}",
+                f"{b.T[0]:.9e}", f"{b.T[1]:.9e}", f"{b.T[2]:.9e}",
+            ])
+        self._w.writerow(row)
+        self._fp.flush()
+
+    def close(self) -> None:
+        self._fp.close()

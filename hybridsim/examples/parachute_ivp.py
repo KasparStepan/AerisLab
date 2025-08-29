@@ -1,54 +1,46 @@
-"""
-Example using variable-step Radau integration with contact events.
-"""
 from __future__ import annotations
 import numpy as np
-from hybridsim import (
-    World, RigidBody6DOF, Gravity, Drag,
-    DistanceConstraint, GroundProjection,
-    HybridSolver, SolverSettings,
-    HybridIVPSolver, IVPSettings,
-    CSVLogger
-)
+from pathlib import Path
+from hybridsim import *
 
 def main():
-    fixed = HybridSolver(SolverSettings(baumgarte_alpha=0.0, baumgarte_beta=0.0))
-    world = World(dt=0.005, solver=fixed, contact_model=GroundProjection(ground_z=0.0))
-    world.logger = CSVLogger("parachute_ivp.csv")
+    world = World(ground_z=0.0)
+
+    I_diag_payload = np.diag([0.4, 0.4, 0.2])
+    I_diag_canopy  = np.diag([0.05, 0.05, 0.02])
 
     payload = RigidBody6DOF(
-        name="payload", mass=1.5,
-        inertia_tensor_body=np.diag([0.2, 0.2, 0.2]),
-        position=[0, 0, 20], orientation=[0, 0, 0, 1],
-        linear_velocity=[0, 0, 0], angular_velocity=[0, 0, 0],
-        radius=0.15
+        name="payload", mass=20.0, I_body=I_diag_payload,
+        p=np.array([0.0, 0.0, 200.0]), q=np.array([1.0, 0.0, 0.0, 0.0]),
+    )
+    canopy = RigidBody6DOF(
+        name="canopy", mass=2.0, I_body=I_diag_canopy,
+        p=np.array([0.0, 0.0, 205.0]), q=np.array([1.0, 0.0, 0.0, 0.0]),
     )
 
-    chute = RigidBody6DOF(
-        name="parachute", mass=1.0,
-        inertia_tensor_body=np.diag([0.1, 0.1, 0.1]),
-        position=[0, 0, 21], orientation=[0, 0, 0, 1],
-        linear_velocity=[0, 0, 0], angular_velocity=[0, 0, 0],
-        radius=0.25
-    )
+    i_payload = world.add_body(payload)
+    i_canopy  = world.add_body(canopy)
+    world.set_payload(i_payload)
 
-    world.add_body(payload); world.add_body(chute)
-    world.add_global_force(Gravity([0, 0, -9.81]))
-    payload.forces.append(Drag(rho=1.2, Cd=0.47, area=0.1))
-    chute.forces.append(Drag(rho=1.2, Cd=1.5, area=np.pi * (1.2**2)))
+    world.global_forces.append(Gravity())
+    payload.forces.append(Drag(rho=1.225, Cd=1.0, area=0.05))
+    canopy.forces.append(Drag(rho=1.225, Cd=1.6, area=40.0))
 
-    # Rigid 1 m tether (COMs)
-    world.add_constraint(DistanceConstraint(payload, chute, np.zeros(3), np.zeros(3), L=1.0))
+    RigidTetherJoint(
+        i_payload, i_canopy,
+        r_i_b=np.zeros(3), r_j_b=np.zeros(3),
+        length=5.0
+    ).attach(world)
 
-    # Variable-step solver: Radau, stiff, with small tolerances
-    ivp = HybridIVPSolver(
-        settings=world.solver.settings,
-        ivp=IVPSettings(method="Radau", rtol=1e-6, atol=1e-9, max_step=None)
-    )
+    log = CSVLogger(Path(__file__).with_suffix(".csv"))
+    world.set_logger(log)
 
-    world.integrate_to(world.time + 5.0, ivp)
+    # IVP solver with ground terminal event
+    ivp = HybridIVPSolver(method="Radau", rtol=1e-6, atol=1e-9, alpha=5.0, beta=1.0)
+    world.integrate_to(t_end=20.0, ivp=ivp)
 
-    print("Saved log to parachute_ivp.csv")
+    log.close()
+    print("Finished IVP run at t =", world.time)
 
 if __name__ == "__main__":
     main()

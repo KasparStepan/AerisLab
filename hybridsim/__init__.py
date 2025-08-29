@@ -1,37 +1,25 @@
 """
-Hybrid multibody dynamics (DAE + ODE) with rigid constraints, soft/rigid joints,
-and unilateral ground contact. Variable-step stiff integration via SciPy.
-
-Public API re-exports for convenience.
+HybridSim: minimal 3D multibody dynamics with rigid constraints (DAE via Lagrange multipliers).
+- Fixed-step: semi-implicit Euler + KKT each step
+- Variable-step (optional): SciPy solve_ivp (Radau/BDF) with terminal ground event
 """
 from .mathutil import (
-    normalize_quaternion, quaternion_multiply, quaternion_to_rotation_matrix,
-    euler_to_quaternion, quaternion_to_euler, skew,
+    q_normalize, q_mul, q_to_R, omega_to_qdot, skew,
 )
 from .body import RigidBody6DOF
 from .forces import Force, Gravity, Drag, Spring
 from .constraints import Constraint, DistanceConstraint, PointWeldConstraint
-from .contact import GroundProjection, GroundPenalty, GroundImpulse
-from .solver import (
-    HybridSolver, SolverSettings,
-    HybridIVPSolver, IVPSettings,
-)
+from .joints import RigidTetherJoint, WeldJoint, SoftTetherJoint
+from .solver import HybridSolver, HybridIVPSolver
 from .world import World
 from .logger import CSVLogger
-from .joints import (
-    Joint, SoftTetherJoint, RigidTetherJoint, WeldJoint
-)
 
 __all__ = [
+    "q_normalize", "q_mul", "q_to_R", "omega_to_qdot", "skew",
     "RigidBody6DOF",
     "Force", "Gravity", "Drag", "Spring",
     "Constraint", "DistanceConstraint", "PointWeldConstraint",
-    "GroundProjection", "GroundPenalty", "GroundImpulse",
-    "HybridSolver", "SolverSettings",
-    "HybridIVPSolver", "IVPSettings",
-    "World",
-    "CSVLogger",
-    "Joint", "SoftTetherJoint", "RigidTetherJoint", "WeldJoint",
-    "normalize_quaternion", "quaternion_multiply", "quaternion_to_rotation_matrix",
-    "euler_to_quaternion", "quaternion_to_euler", "skew",
+    "RigidTetherJoint", "WeldJoint", "SoftTetherJoint",
+    "HybridSolver", "HybridIVPSolver",
+    "World", "CSVLogger",
 ]

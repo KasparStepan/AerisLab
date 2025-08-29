@@ -1,56 +1,71 @@
 from __future__ import annotations
-from dataclasses import dataclass, field
-from typing import Optional
-from .solver import HybridSolver, HybridIVPSolver, SolverSettings, IVPSettings
-from .logger import CSVLogger
+import numpy as np
+from typing import Callable, Optional, List
+from .body import RigidBody6DOF
+from .forces import Force
+from .solver import HybridSolver, HybridIVPSolver
 
-@dataclass
 class World:
-    """Container for bodies, forces, constraints; orchestrates stepping."""
-    dt: float
-    solver: HybridSolver = field(default_factory=lambda: HybridSolver(SolverSettings()))
-    contact_model: Optional["ContactModel"] = None
+    """Holds bodies, forces, constraints, time, and termination logic."""
+    def __init__(self, ground_z: float = 0.0) -> None:
+        self.bodies: List[RigidBody6DOF] = []
+        self.global_forces: List[Force] = []
+        self.interaction_forces: List = []  # springs etc.
+        self.constraints: List = []
+        self.time: float = 0.0
+        self.ground_z: float = float(ground_z)
+        self.payload_index: Optional[int] = None
+        self.logger = None  # optional CSVLogger
+        # default termination: stop when payload z <= ground_z
+        self.termination_fn: Optional[Callable[['World'], bool]] = None
 
-    bodies: list["RigidBody6DOF"] = field(default_factory=list)
-    global_forces: list["Force"] = field(default_factory=list)
-    interaction_forces: list["Spring"] = field(default_factory=list)  # legacy/optional
-    constraints: list["Constraint"] = field(default_factory=list)
-    logger: Optional[CSVLogger] = None
+    # --- Registry ---
+    def add_body(self, b: RigidBody6DOF) -> int:
+        self.bodies.append(b)
+        return len(self.bodies) - 1
 
-    time: float = 0.0
+    def set_payload(self, body_index: int) -> None:
+        self.payload_index = int(body_index)
 
-    # --- registration ---------------------------------------------------------
+    def set_logger(self, logger) -> None:
+        self.logger = logger
 
-    def add_body(self, body: "RigidBody6DOF") -> None:
-        self.bodies.append(body)
+    def set_termination(self, fn: Callable[['World'], bool]) -> None:
+        """Set user termination predicate."""
+        self.termination_fn = fn
 
-    def add_global_force(self, force: "Force") -> None:
-        self.global_forces.append(force)
+    # --- Fixed-step path ---
+    def step(self, dt: float, solver: HybridSolver) -> None:
+        solver.step(self, dt)
 
-    def add_interaction_force(self, spring: "Spring") -> None:
-        self.interaction_forces.append(spring)
+    def run(self, duration: float, dt: float, solver: Optional[HybridSolver] = None) -> None:
+        solver = solver or HybridSolver()
+        steps = int(np.ceil(duration / dt))
+        for _ in range(steps):
+            # check termination before stepping
+            if self._should_terminate():
+                break
+            self.step(dt, solver)
+            if self.logger is not None:
+                self.logger.write(self.time, self)
 
-    def add_constraint(self, c: "Constraint") -> None:
-        self.constraints.append(c)
+            if self._should_terminate():
+                break
 
-    # --- fixed-step stepping --------------------------------------------------
-
-    def step(self) -> None:
-        self.solver.step(self, self.dt)
-        self.time += self.dt
+    # --- Variable-step path ---
+    def integrate_to(self, t_end: float, ivp: Optional[HybridIVPSolver] = None):
+        ivp = ivp or HybridIVPSolver()
+        # Let IVP event terminate; still log after completion
+        sol = ivp.integrate_to(self, t_end)
         if self.logger is not None:
-            self.logger.log(self.time, self.bodies)
+            self.logger.write(self.time, self)
+        return sol
 
-    def run(self, duration: float) -> None:
-        end = self.time + duration
-        while self.time < end:
-            self.step()
-
-    # --- variable-step integration -------------------------------------------
-
-    def integrate_to(self, t_end: float, ivp: Optional[HybridIVPSolver] = None) -> None:
-        """
-        Integrate from the current world.time to t_end using a variable-step stiff solver.
-        """
-        ivp_solver = ivp or HybridIVPSolver(settings=self.solver.settings)
-        ivp_solver.integrate(self, t_end)
+    # --- Helpers ---
+    def _should_terminate(self) -> bool:
+        if self.termination_fn is not None:
+            return bool(self.termination_fn(self))
+        # Default: stop when payload reaches ground
+        if self.payload_index is None or self.payload_index < 0 or self.payload_index >= len(self.bodies):
+            return False
+        return bool(self.bodies[self.payload_index].p[2] <= self.ground_z)

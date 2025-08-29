@@ -1,80 +1,106 @@
 from __future__ import annotations
 import numpy as np
-from dataclasses import dataclass
+from typing import Protocol, Callable
 
-Array = np.ndarray
+class Force(Protocol):
+    """Per-body force interface."""
+    def apply(self, body, t: float | None = None) -> None: ...  # noqa: E701
 
-class Force:
-    def apply(self, body: "RigidBody6DOF", t: float | None = None) -> None:
-        raise NotImplementedError
+class Gravity:
+    """Uniform gravity. Adds m*g at COM."""
+    def __init__(self, g: np.ndarray = np.array([0.0, 0.0, -9.81], dtype=np.float64)) -> None:
+        self.g = np.array(g, dtype=np.float64)
 
-@dataclass
-class Gravity(Force):
-    g: Array = np.array([0.0, 0.0, -9.81], dtype=float)
+    def apply(self, body, t: float | None = None) -> None:
+        body.apply_force(body.mass * self.g)
 
-    def __post_init__(self):
-        # Coerce to float ndarray even if user passed a list/tuple
-        self.g = np.asarray(self.g, dtype=float)
+class Drag:
+    """Aerodynamic drag.
+    Modes:
+      - 'quadratic': F = -0.5 * ρ * Cd * A * ||v|| * v (world frame)
+      - 'linear'   : F = -k * v
+    Area can be a float or a callable A(t) for time-varying canopy area.
 
-    def apply(self, body: "RigidBody6DOF", t: float | None = None) -> None:
-        if body.mass > 0:
-            body.apply_force(body.mass * self.g)
+    Args:
+        rho: air density [kg/m^3]
+        Cd: drag coefficient [-]
+        area: float or Callable[[float|None], float]
+        mode: 'quadratic' or 'linear'
+        k: linear drag coefficient [N·s/m] if mode='linear'
+    """
+    def __init__(
+        self,
+        rho: float = 1.225,
+        Cd: float = 1.0,
+        area: float | Callable[[float | None], float] = 0.0,
+        mode: str = "quadratic",
+        k: float = 0.0,
+    ) -> None:
+        self.rho = float(rho)
+        self.Cd = float(Cd)
+        self.area = area
+        self.mode = mode
+        self.k = float(k)
 
-@dataclass
-class Drag(Force):
-    rho: float
-    Cd: float
-    area: float
-    model: str = "quadratic"
+    def _area(self, t: float | None) -> float:
+        if callable(self.area):
+            return float(self.area(t))
+        return float(self.area)
 
-    def apply(self, body: "RigidBody6DOF", t: float | None = None) -> None:
-        v = body.linear_velocity
-        speed = np.linalg.norm(v)
-        if speed < 1e-12:
-            return
-        if self.model == "quadratic":
-            f = -0.5 * self.rho * self.Cd * self.area * speed * v
-        elif self.model == "linear":
-            f = -self.Cd * v
+    def apply(self, body, t: float | None = None) -> None:
+        v = body.v
+        if self.mode == "quadratic":
+            A = self._area(t)
+            speed = float(np.linalg.norm(v))
+            if speed > 0.0 and A > 0.0:
+                F = -0.5 * self.rho * self.Cd * A * speed * v
+                body.apply_force(F)
+        elif self.mode == "linear":
+            body.apply_force(-self.k * v)
         else:
-            raise ValueError(f"Unknown drag model: {self.model}")
-        body.apply_force(f)
+            raise ValueError(f"Unknown drag mode: {self.mode}")
 
-# (Spring unchanged)
-
-
-@dataclass
 class Spring:
-    """
-    Optional soft spring (legacy/auxiliary) between two bodies at attachment points.
-    Not part of the DAE constraint path.
-    """
-    body_a: "RigidBody6DOF"
-    body_b: "RigidBody6DOF"
-    r_a_local: Array
-    r_b_local: Array
-    rest_length: float
-    k: float
-    c: float
+    """Soft tether between two bodies (not part of rigid DAE).
+    Hooke + line damping along the current line of centers.
 
-    def apply(self) -> None:
-        from .mathutil import quaternion_to_rotation_matrix
-        Ra = quaternion_to_rotation_matrix(self.body_a.orientation)
-        Rb = quaternion_to_rotation_matrix(self.body_b.orientation)
-        pa = self.body_a.position + Ra @ self.r_a_local
-        pb = self.body_b.position + Rb @ self.r_b_local
-        d = pb - pa
-        L = np.linalg.norm(d)
+    Args:
+        body_i, body_j: RigidBody6DOF instances
+        r_i_b, r_j_b  : (3,) attachment points in body frames
+        k             : stiffness [N/m]
+        c             : damping [N·s/m]
+        L0            : rest length [m]
+    """
+    def __init__(
+        self, body_i, body_j,
+        r_i_b: np.ndarray, r_j_b: np.ndarray,
+        k: float, c: float, L0: float
+    ) -> None:
+        self.body_i = body_i
+        self.body_j = body_j
+        self.r_i_b = np.array(r_i_b, dtype=np.float64)
+        self.r_j_b = np.array(r_j_b, dtype=np.float64)
+        self.k = float(k)
+        self.c = float(c)
+        self.L0 = float(L0)
+
+    def apply(self, t: float | None = None) -> None:
+        """Apply equal/opposite forces to both bodies."""
+        bi, bj = self.body_i, self.body_j
+        Ri, Rj = bi.rotation_world(), bj.rotation_world()
+        ri_w, rj_w = Ri @ self.r_i_b, Rj @ self.r_j_b
+        xi, xj = bi.p + ri_w, bj.p + rj_w
+        vi_pt = bi.v + np.cross(bi.w, ri_w)
+        vj_pt = bj.v + np.cross(bj.w, rj_w)
+
+        d = xj - xi
+        L = float(np.linalg.norm(d))
         if L < 1e-12:
             return
         n = d / L
-        # spring
-        fs = self.k * (L - self.rest_length) * n
-        # damping along the line
-        va = self.body_a.linear_velocity + np.cross(self.body_a.angular_velocity, Ra @ self.r_a_local)
-        vb = self.body_b.linear_velocity + np.cross(self.body_b.angular_velocity, Rb @ self.r_b_local)
-        rel_v = vb - va
-        fd = self.c * np.dot(rel_v, n) * n
-        f = fs + fd
-        self.body_a.apply_force(-f, point_world=pa)
-        self.body_b.apply_force(+f, point_world=pb)
+        v_rel_n = (vj_pt - vi_pt).dot(n)
+        Fmag = -self.k * (L - self.L0) - self.c * v_rel_n
+        F = Fmag * n
+
+        bi.apply_force(-F, point_world=xi)
+        bj.apply_force(+F, point_world=xj)

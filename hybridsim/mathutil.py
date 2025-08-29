@@ -1,60 +1,74 @@
 from __future__ import annotations
 import numpy as np
 
-Array = np.ndarray
+EPS = 1e-12
 
-def normalize_quaternion(q: Array) -> Array:
-    """Normalize quaternion [x, y, z, w] to unit length."""
+def skew(v: np.ndarray) -> np.ndarray:
+    """Return 3×3 skew-symmetric matrix [v]_x such that [v]_x w = v × w.
+    Args:
+        v: (3,) vector.
+    Returns:
+        (3,3) skew-symmetric matrix.
+    """
+    vx, vy, vz = float(v[0]), float(v[1]), float(v[2])
+    return np.array([[0.0, -vz,  vy],
+                     [vz,  0.0, -vx],
+                     [-vy, vx,  0.0]], dtype=np.float64)
+
+def q_normalize(q: np.ndarray) -> np.ndarray:
+    """Normalize unit quaternion (scalar-first [w, x, y, z])."""
     n = np.linalg.norm(q)
-    if n == 0:
-        raise ValueError("Zero quaternion cannot be normalized.")
-    return q / n
+    if n < EPS:
+        return np.array([1.0, 0.0, 0.0, 0.0], dtype=np.float64)
+    return (q / n).astype(np.float64)
 
-def quaternion_multiply(q1: Array, q2: Array) -> Array:
-    """Hamilton product q1 ⊗ q2, both [x,y,z,w]."""
-    x1, y1, z1, w1 = q1
-    x2, y2, z2, w2 = q2
+def q_mul(q1: np.ndarray, q2: np.ndarray) -> np.ndarray:
+    """Hamilton product, scalar-first quaternions.
+    Args:
+        q1, q2: (4,), [w, x, y, z]
+    Returns:
+        q = q1 ⊗ q2
+    """
+    w1, x1, y1, z1 = q1
+    w2, x2, y2, z2 = q2
     return np.array([
+        w1*w2 - x1*x2 - y1*y2 - z1*z2,
         w1*x2 + x1*w2 + y1*z2 - z1*y2,
         w1*y2 - x1*z2 + y1*w2 + z1*x2,
-        w1*z2 + x1*y2 - y1*x2 + z1*w2,
-        w1*w2 - x1*x2 - y1*y2 - z1*z2
-    ], dtype=float)
+        w1*z2 + x1*y2 - y1*x2 + z1*w2
+    ], dtype=np.float64)
 
-def quaternion_to_rotation_matrix(q: Array) -> Array:
-    """Quaternion [x,y,z,w] -> 3x3 rotation matrix."""
-    x, y, z, w = q
-    xx, yy, zz = x*x, y*y, z*z
-    xy, xz, yz = x*y, x*z, y*z
+def omega_to_qdot(q: np.ndarray, omega: np.ndarray) -> np.ndarray:
+    """Quaternion derivative from angular velocity (world frame) using q' = 0.5 q ⊗ [0, ω].
+    Args:
+        q: (4,) unit quaternion [w, x, y, z]
+        omega: (3,) angular velocity in world frame [rad/s].
+    Returns:
+        qdot: (4,)
+    """
+    w, x, y, z = q
+    wx, wy, wz = omega
+    # q ⊗ [0, ω]
+    return 0.5 * np.array([
+        - x*wx - y*wy - z*wz,
+         w*wx + y*wz - z*wy,
+         w*wy - x*wz + z*wx,
+         w*wz + x*wy - y*wx
+    ], dtype=np.float64)
+
+def q_to_R(q: np.ndarray) -> np.ndarray:
+    """Rotation matrix from unit quaternion (scalar-first).
+    Args:
+        q: (4,) unit quaternion [w, x, y, z]
+    Returns:
+        R: (3,3) rotation matrix, maps body->world
+    """
+    w, x, y, z = q_normalize(q)
+    ww, xx, yy, zz = w*w, x*x, y*y, z*z
     wx, wy, wz = w*x, w*y, w*z
+    xy, xz, yz = x*y, x*z, y*z
     return np.array([
-        [1 - 2*(yy + zz), 2*(xy - wz),     2*(xz + wy)],
-        [2*(xy + wz),     1 - 2*(xx + zz), 2*(yz - wx)],
-        [2*(xz - wy),     2*(yz + wx),     1 - 2*(xx + yy)],
-    ], dtype=float)
-
-def euler_to_quaternion(roll: float, pitch: float, yaw: float) -> Array:
-    """XYZ Euler to quaternion [x,y,z,w]."""
-    cy = np.cos(yaw * 0.5); sy = np.sin(yaw * 0.5)
-    cp = np.cos(pitch * 0.5); sp = np.sin(pitch * 0.5)
-    cr = np.cos(roll * 0.5);  sr = np.sin(roll * 0.5)
-    w = cr*cp*cy + sr*sp*sy
-    x = sr*cp*cy - cr*sp*sy
-    y = cr*sp*cy + sr*cp*sy
-    z = cr*cp*sy - sr*sp*cy
-    return np.array([x, y, z, w], dtype=float)
-
-def quaternion_to_euler(q: Array) -> Array:
-    """Quaternion [x,y,z,w] -> XYZ Euler."""
-    x, y, z, w = q
-    roll  = np.arctan2(2*(y*w + x*z), 1 - 2*(x*x + y*y))
-    pitch = np.arcsin(2*(w*y - x*z))
-    yaw   = np.arctan2(2*(x*w + y*z), 1 - 2*(y*y + z*z))
-    return np.array([roll, pitch, yaw], dtype=float)
-
-def skew(v: Array) -> Array:
-    """Skew-symmetric matrix S(v) such that S(v) @ w = v × w."""
-    x, y, z = v
-    return np.array([[0, -z,  y],
-                     [z,  0, -x],
-                     [-y, x,  0]], dtype=float)
+        [ww + xx - yy - zz, 2*(xy - wz),     2*(xz + wy)],
+        [2*(xy + wz),       ww - xx + yy - zz, 2*(yz - wx)],
+        [2*(xz - wy),       2*(yz + wx),     ww - xx - yy + zz]
+    ], dtype=np.float64)

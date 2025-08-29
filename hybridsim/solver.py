@@ -1,331 +1,231 @@
 from __future__ import annotations
 import numpy as np
-from dataclasses import dataclass
-from typing import Optional, Callable
+from typing import Optional, Tuple
 
-from .mathutil import normalize_quaternion, quaternion_multiply
+from .mathutil import EPS
+from .body import RigidBody6DOF
 
-Array = np.ndarray
+def _assemble_system(world, alpha: float, beta: float) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+    """Assemble global M, Q, J, C, Jv.
+    Returns:
+        M  : (6n,6n) block-diag mass/inertia
+        Q  : (6n,) generalized forces with gyroscopic bias
+        J  : (m,6n) velocity Jacobian
+        C  : (m,) constraint values
+        Jv : (m,) constraint velocity (Cdot)
+    """
+    n = len(world.bodies)
+    dof = 6 * n
+    # Mass & generalized forces
+    M = np.zeros((dof, dof), dtype=np.float64)
+    Q = np.zeros(dof, dtype=np.float64)
+    vglob = np.zeros(dof, dtype=np.float64)
 
-# --------------------------- Fixed-step hybrid solver -------------------------
+    for i, b in enumerate(world.bodies):
+        # M block
+        Mi = b.mass_matrix_world()
+        M[6*i:6*i+6, 6*i:6*i+6] = Mi
 
-@dataclass
-class SolverSettings:
-    """Settings for the hybrid constraint solve and integration."""
-    baumgarte_alpha: float = 0.0   # position stabilization factor (s^-1)
-    baumgarte_beta: float  = 0.0   # velocity stabilization factor (s^-1)
+        # Per-body forces (already accumulated)
+        Qi = b.generalized_force()
+        Q[6*i:6*i+6] = Qi
+
+        # Velocity block
+        vglob[6*i:6*i+6] = np.hstack([b.v, b.w])
+
+    # Constraints
+    m = sum(c.rows() for c in world.constraints)
+    if m == 0:
+        J = np.zeros((0, dof), dtype=np.float64)
+        C = np.zeros(0, dtype=np.float64)
+        Jv = np.zeros(0, dtype=np.float64)
+        return M, Q, J, C, Jv
+
+    J = np.zeros((m, dof), dtype=np.float64)
+    C = np.zeros(m, dtype=np.float64)
+
+    row = 0
+    for c in world.constraints:
+        r = c.rows()
+        idxs = c.index_map(world)
+        C[row:row+r] = c.evaluate(world)
+        Jloc = c.jacobian_local(world)  # (r, 6*nb)
+        # Scatter into global J
+        for k, bi in enumerate(idxs):
+            J[row:row+r, 6*bi:6*bi+6] = Jloc[:, 6*k:6*(k+1)]
+        row += r
+
+    Jv = J @ vglob
+    return M, Q, J, C, Jv
+
+def _solve_kkt(M: np.ndarray, Q: np.ndarray, J: np.ndarray, rhs: np.ndarray) -> Tuple[np.ndarray, np.ndarray]:
+    """Solve KKT:
+        [ M  Jᵀ ][a] = [ Q   ]
+        [ J   0 ][λ]   [ rhs ]
+    Returns:
+        a (6n,), λ (m,)
+    """
+    n = M.shape[0]
+    m = J.shape[0]
+    if m == 0:
+        # No constraints
+        a = np.linalg.solve(M, Q)
+        return a, np.zeros(0, dtype=np.float64)
+
+    K = np.zeros((n+m, n+m), dtype=np.float64)
+    K[:n, :n] = M
+    K[:n, n:] = J.T
+    K[n:, :n] = J
+    b = np.zeros(n+m, dtype=np.float64)
+    b[:n] = Q
+    b[n:] = rhs
+
+    sol = np.linalg.solve(K, b)
+    a = sol[:n]
+    lam = sol[n:]
+    return a, lam
 
 class HybridSolver:
+    """Fixed-step solver: semi-implicit Euler + KKT per step.
+    Baumgarte stabilization:
+        rhs = -J v - (alpha * C + beta * Cdot)
     """
-    Fixed-step hybrid solver:
-      1) Clear forces
-      2) Apply forces (optionally time-aware)
-      3) Assemble M, F, J
-      4) Solve KKT: [M J^T; J 0][a; λ] = [F; rhs]
-      5) Integrate (semi-implicit)
-      6) Contact post-process
-    """
-    def __init__(self, settings: Optional[SolverSettings] = None):
-        self.settings = settings or SolverSettings()
+    def __init__(self, alpha: float = 0.0, beta: float = 0.0) -> None:
+        self.alpha = float(alpha)
+        self.beta = float(beta)
+        self.last_lambdas: Optional[np.ndarray] = None  # optional exposure
 
-    # --- shared assembly utilities -------------------------------------------
-
-    @staticmethod
-    def _block_diag(blocks: list[Array]) -> Array:
-        n = sum(b.shape[0] for b in blocks)
-        M = np.zeros((n, n))
-        i = 0
-        for b in blocks:
-            k = b.shape[0]
-            M[i:i+k, i:i+k] = b
-            i += k
-        return M
-
-    @staticmethod
-    def assemble_mass_force(bodies: list["RigidBody6DOF"]) -> tuple[Array, Array]:
-        M_blocks, F_list = [], []
-        for b in bodies:
-            M_blocks.append(b.mass_matrix_world())    # (6,6)
-            F_list.append(b.generalized_force())      # (6,)
-        M = HybridSolver._block_diag(M_blocks) if M_blocks else np.zeros((0, 0))
-        F = np.concatenate(F_list) if F_list else np.zeros(0)
-        return M, F
-
-    @staticmethod
-    def assemble_velocity(bodies: list["RigidBody6DOF"]) -> Array:
-        chunks = [np.hstack([b.linear_velocity, b.angular_velocity]) for b in bodies]
-        return np.concatenate(chunks) if chunks else np.zeros(0)
-
-    def assemble_constraints(self, world: "World") -> tuple[Array | None, Array | None]:
-        if not world.constraints:
-            return None, None
-
-        rows = sum(c.rows() for c in world.constraints)
-        N = len(world.bodies)
-        J = np.zeros((rows, 6 * N))
-        rhs = np.zeros(rows)
-        r0 = 0
-
-        v = self.assemble_velocity(world.bodies)
-
-        for c in world.constraints:
-            k = c.rows()
-            idxs = c.index_map(world)  # e.g., [i, j]
-            Jloc = c.jacobian_local(world)  # (k, 12) for two-body constraints
-            if len(idxs) != 2:
-                raise NotImplementedError("Template implements 2-body constraints; extend for more.")
-            i, j = idxs
-            J[r0:r0+k, 6*i:6*i+3]     = Jloc[:, 0:3]
-            J[r0:r0+k, 6*i+3:6*i+6]   = Jloc[:, 3:6]
-            J[r0:r0+k, 6*j:6*j+3]     = Jloc[:, 6:9]
-            J[r0:r0+k, 6*j+3:6*j+6]   = Jloc[:, 9:12]
-
-            rhs[r0:r0+k] = -(J[r0:r0+k, :] @ v)  # velocity-level target
-
-            if (self.settings.baumgarte_alpha != 0.0) or (self.settings.baumgarte_beta != 0.0):
-                C = c.evaluate(world)
-                Cdot = J[r0:r0+k, :] @ v
-                rhs[r0:r0+k] -= (self.settings.baumgarte_alpha * C + self.settings.baumgarte_beta * Cdot)
-            r0 += k
-
-        return J, rhs
-
-    # --- fixed-step step() ----------------------------------------------------
-
-    def step(self, world: "World", dt: float) -> None:
-        # 1) clear forces
+    def step(self, world, dt: float) -> None:
+        # 1) Clear & apply forces
         for b in world.bodies:
             b.clear_forces()
-
-        # 2) apply forces (time-aware if provided)
         for gf in world.global_forces:
             for b in world.bodies:
                 gf.apply(b, world.time)
+        # per-body forces
         for b in world.bodies:
-            for bf in b.forces:
-                bf.apply(b, world.time)
-        for s in world.interaction_forces:
-            s.apply()
+            for f in b.forces:
+                f.apply(b, world.time)
+        # interaction forces (springs, etc.)
+        for f in world.interaction_forces:
+            f.apply(world.time)
 
-        # 3) assemble
-        M, F = self.assemble_mass_force(world.bodies)
-        if M.size == 0:
-            return
-        J, rhs = self.assemble_constraints(world)
+        # 2) Assemble
+        M, Q, J, C, Jv = _assemble_system(world, self.alpha, self.beta)
 
-        # 4) KKT
-        if J is not None and J.size > 0:
-            m = J.shape[0]
-            Z = np.zeros((m, m))
-            A = np.block([[M, J.T],
-                          [J, Z]])
-            b = np.concatenate([F, rhs])
-            sol = np.linalg.solve(A, b)
-            a_all = sol[:M.shape[0]]
-        else:
-            a_all = np.linalg.solve(M, F)
+        # 3) Build RHS for constraints
+        rhs = -Jv - (self.alpha * C + self.beta * Jv)
 
-        # scatter + integrate
-        idx = 0
-        for b in world.bodies:
-            b._a_lin = a_all[idx:idx+3]; b._a_ang = a_all[idx+3:idx+6]
-            idx += 6
+        # 4) Solve KKT -> accelerations
+        a, lam = _solve_kkt(M, Q, J, rhs)
+        self.last_lambdas = lam
+
+        # 5) Scatter + integrate
+        for i, b in enumerate(world.bodies):
+            ai = a[6*i:6*i+6]
+            b.a_lin = ai[:3]
+            b.a_ang = ai[3:]
             b.integrate_semi_implicit(dt)
 
-        # contact
-        if world.contact_model is not None:
-            world.contact_model.post_integrate(world)
-
-# --------------------------- Variable-step IVP solver -------------------------
-
-@dataclass
-class IVPSettings:
-    """
-    Settings for variable-step solve_ivp integration.
-    """
-    method: str = "Radau"      # "Radau" (stiff, A-stable) or "BDF" (stiff)
-    rtol: float = 1e-6
-    atol: float = 1e-8
-    max_step: float | None = None
-    normalize_quaternion_each_step: bool = True
-    max_contact_events: int = 128  # safety guard
+        world.time += dt
 
 class HybridIVPSolver:
-    """
-    Variable-step stiff integrator using scipy.integrate.solve_ivp.
-    Builds a continuous ODE y' = f(t, y) by solving a KKT system at each RHS call
-    to obtain accelerations consistent with constraints.
+    """Variable-step solver using scipy.integrate.solve_ivp with stiff methods."""
+    def __init__(
+        self,
+        method: str = "Radau",
+        rtol: float = 1e-6,
+        atol: float = 1e-9,
+        max_step: Optional[float] = None,
+        alpha: float = 0.0, beta: float = 0.0,
+    ) -> None:
+        self.method = method
+        self.rtol = rtol
+        self.atol = atol
+        self.max_step = max_step
+        self.alpha = float(alpha)
+        self.beta = float(beta)
+        self.last_lambdas: Optional[np.ndarray] = None
 
-    State y per body: [px,py,pz,  qx,qy,qz,qw,  vx,vy,vz,  wx,wy,wz]  (13)
-    """
-    def __init__(self, settings: Optional[SolverSettings] = None, ivp: Optional[IVPSettings] = None):
-        self.settings = settings or SolverSettings()
-        self.ivp = ivp or IVPSettings()
-
-    # ---- packing / unpacking -------------------------------------------------
-
-    @staticmethod
-    def pack_state(bodies: list["RigidBody6DOF"]) -> Array:
-        chunks = []
-        for b in bodies:
-            chunks.append(np.hstack([b.position, b.orientation, b.linear_velocity, b.angular_velocity]))
-        return np.concatenate(chunks) if chunks else np.zeros(0)
-
-    @staticmethod
-    def unpack_state(y: Array, bodies: list["RigidBody6DOF"], normalize_quat: bool = True) -> None:
-        idx = 0
-        for b in bodies:
-            b.position = y[idx:idx+3]; idx += 3
-            b.orientation = y[idx:idx+4]; idx += 4
-            if normalize_quat:
-                b.orientation = normalize_quaternion(b.orientation)
-            b.linear_velocity = y[idx:idx+3]; idx += 3
-            b.angular_velocity = y[idx:idx+3]; idx += 3
-
-    # ---- assembling M,F,J and RHS (same as fixed-step) ----------------------
-
-    def _assemble_MFJ_rhs(self, world: "World") -> tuple[Array, Array, Array | None, Array | None]:
-        # forces are assumed already applied by caller (rhs) prior to this call
-        M, F = HybridSolver.assemble_mass_force(world.bodies)
-        J, rhs = HybridSolver(self.settings).assemble_constraints(world)
-        return M, F, J, rhs
-
-    # ---- RHS for solve_ivp ---------------------------------------------------
-
-    def _rhs(self, t: float, y: Array, world: "World") -> Array:
-        # reflect y into bodies
-        self.unpack_state(y, world.bodies, normalize_quat=self.ivp.normalize_quaternion_each_step)
-
-        # clear & apply forces with time
-        for b in world.bodies:
-            b.clear_forces()
-        for gf in world.global_forces:
-            for b in world.bodies:
-                gf.apply(b, t)
-        for b in world.bodies:
-            for bf in b.forces:
-                bf.apply(b, t)
-        for s in world.interaction_forces:
-            s.apply()
-
-        # assemble and solve for accelerations
-        M, F, J, rhs = self._assemble_MFJ_rhs(world)
-        if J is not None and J.size > 0:
-            m = J.shape[0]
-            Z = np.zeros((m, m))
-            A = np.block([[M, J.T],
-                          [J, Z]])
-            b = np.concatenate([F, rhs])
-            sol = np.linalg.solve(A, b)
-            a_all = sol[:M.shape[0]]
-        else:
-            a_all = np.linalg.solve(M, F)
-
-        # build ydot
-        ydot = np.zeros_like(y)
-        idx = 0
-        a_idx = 0
-        for b in world.bodies:
-            # p' = v
-            ydot[idx:idx+3] = b.linear_velocity; idx += 3
-            # q' = 0.5 * q ⊗ [0, ω]
-            dq = quaternion_multiply(b.orientation, np.hstack(([0.0], b.angular_velocity))) * 0.5
-            ydot[idx:idx+4] = dq; idx += 4
-            # v' = a_lin,  ω' = a_ang
-            ydot[idx:idx+3] = a_all[a_idx:a_idx+3]; idx += 3; a_idx += 3
-            ydot[idx:idx+3] = a_all[a_idx:a_idx+3]; idx += 3; a_idx += 3
-
-        return ydot
-
-    # ---- events for contact (ground) ----------------------------------------
-
-    @staticmethod
-    def _make_ground_event(world: "World") -> Callable[[float, Array], float]:
-        """Event when any body crosses ground level (becomes z < ground_z)."""
-        if world.contact_model is None:
-            # dummy event that never triggers
-            def no_event(t: float, y: Array) -> float:  # pragma: no cover
-                return 1.0
-            no_event.terminal = False
-            no_event.direction = -1
-            return no_event
-
-        ground_z = getattr(world.contact_model, "ground_z", 0.0)
-
-        def event(t: float, y: Array) -> float:
-            # min over all bodies of (z - ground_z)
-            # state layout per body: [p(3), q(4), v(3), w(3)]
-            min_val = np.inf
-            stride = 13
-            for i in range(len(world.bodies)):
-                z = y[i*stride + 2]
-                min_val = min(min_val, z - ground_z)
-            return min_val
-
-        event.terminal = True   # stop integration at contact
-        event.direction = -1    # detect downward crossing
-        return event
-
-    # ---- integrate to target time with events & contact handling -------------
-
-    def integrate(self, world: "World", t_end: float) -> None:
-        """
-        Integrate world.time -> t_end with a stiff variable-step method.
-        Handles ground contact via event detection + post_integrate + restart.
-        """
+    def integrate_to(self, world, t_end: float):
         try:
             from scipy.integrate import solve_ivp
-        except ImportError as e:  # pragma: no cover
-            raise RuntimeError("scipy is required for HybridIVPSolver.integrate") from e
+        except Exception as e:
+            raise RuntimeError("SciPy is required for HybridIVPSolver.") from e
 
-        t0 = world.time
-        if t_end <= t0:
-            return
+        n = len(world.bodies)
 
-        # pack initial state
-        y0 = self.pack_state(world.bodies)
+        def pack_state() -> np.ndarray:
+            y = []
+            for b in world.bodies:
+                y.extend([*b.p, *b.q, *b.v, *b.w])
+            return np.array(y, dtype=np.float64)
 
-        # integrate in segments, restarting at each contact event
-        events_handled = 0
-        while t0 < t_end - 1e-15:
-            # define RHS bound with current world reference
-            def rhs(t, y): return self._rhs(t, y, world)
+        def unpack_state(y: np.ndarray) -> None:
+            for i, b in enumerate(world.bodies):
+                off = 13 * i
+                b.p = y[off:off+3]
+                b.q = y[off+3:off+7]
+                b.q = b.q / np.linalg.norm(b.q)  # keep unit
+                b.v = y[off+7:off+10]
+                b.w = y[off+10:off+13]
 
-            # events (only ground)
-            ev = self._make_ground_event(world)
-            sol = solve_ivp(
-                rhs, (t0, t_end), y0,
-                method=self.ivp.method, rtol=self.ivp.rtol, atol=self.ivp.atol,
-                events=ev, max_step=self.ivp.max_step
-            )
+        def rhs(t: float, y: np.ndarray) -> np.ndarray:
+            unpack_state(y)
+            # Clear & apply forces
+            for b in world.bodies:
+                b.clear_forces()
+            for gf in world.global_forces:
+                for b in world.bodies:
+                    gf.apply(b, t)
+            for b in world.bodies:
+                for f in b.forces:
+                    f.apply(b, t)
+            for f in world.interaction_forces:
+                f.apply(t)
 
-            # update world to final solver state of this segment
-            self.unpack_state(sol.y[:, -1], world.bodies, normalize_quat=True)
-            world.time = float(sol.t[-1])
-            if world.logger is not None:
-                world.logger.log(world.time, world.bodies)
+            # Assemble
+            M, Q, J, C, Jv = _assemble_system(world, self.alpha, self.beta)
+            rhs_c = -Jv - (self.alpha * C + self.beta * Jv)
+            a, lam = _solve_kkt(M, Q, J, rhs_c)
+            self.last_lambdas = lam
 
-            # if contact occurred, apply contact model and continue immediately
-            if sol.t_events and len(sol.t_events[0]) > 0:
-                # set state exactly at event time
-                te = sol.t_events[0][-1]
-                ye = sol.y_events[0][-1]
-                self.unpack_state(ye, world.bodies, normalize_quat=True)
-                world.time = float(te)
+            # Build ydot
+            ydot = np.zeros_like(y)
+            for i, b in enumerate(world.bodies):
+                off = 13 * i
+                ydot[off:off+3] = b.v
+                # qdot
+                w0, x, yq, z = b.q
+                wx, wy, wz = b.w
+                qdot = 0.5 * np.array([
+                    -x*wx - yq*wy - z*wz,
+                     w0*wx + yq*wz - z*wy,
+                     w0*wy - x*wz + z*wx,
+                     w0*wz + x*wy - yq*wx,
+                ], dtype=np.float64)
+                ydot[off+3:off+7] = qdot
+                ai = a[6*i:6*i+6]
+                ydot[off+7:off+10] = ai[:3]
+                ydot[off+10:off+13] = ai[3:]
+            return ydot
 
-                # apply contact impulse/projection/penalty
-                if world.contact_model is not None:
-                    world.contact_model.post_integrate(world)
-                if world.logger is not None:
-                    world.logger.log(world.time, world.bodies)
+        # Terminal event: payload z - ground_z (downwards crossing)
+        payload_idx = world.payload_index if world.payload_index is not None else 0
+        def ground_event(t: float, y: np.ndarray) -> float:
+            z = y[13*payload_idx + 2]  # payload p_z
+            return z - world.ground_z
+        ground_event.terminal = True
+        ground_event.direction = -1.0
 
-                # restart from here
-                y0 = self.pack_state(world.bodies)
-                t0 = world.time
-                events_handled += 1
-                if events_handled > self.ivp.max_contact_events:  # safety
-                    raise RuntimeError("Exceeded max_contact_events during IVP integration.")
-                continue
-
-            # no more events; we reached t_end
-            break
+        y0 = pack_state()
+        t0 = float(world.time)
+        sol = solve_ivp(
+            rhs, (t0, float(t_end)), y0,
+            method=self.method, rtol=self.rtol, atol=self.atol, max_step=self.max_step,
+            events=ground_event
+        )
+        # Set world to final state (no projection)
+        unpack_state(sol.y[:, -1])
+        world.time = float(sol.t[-1])
+        return sol
