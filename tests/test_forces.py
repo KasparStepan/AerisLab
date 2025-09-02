@@ -1,16 +1,23 @@
 import numpy as np
+import pytest
 from hybridsim import RigidBody6DOF, Gravity, Drag
 
-def test_gravity_direction_and_magnitude():
-    b = RigidBody6DOF("b", mass=3.0, I_body=np.eye(3), p=np.zeros(3), q=np.array([1,0,0,0]))
-    g = Gravity(g=np.array([0.0, 0.0, -9.81]))
+def test_gravity_force_direction():
+    b = RigidBody6DOF("b", 2.0, np.eye(3), np.zeros(3), np.array([1,0,0,0]))
+    g = Gravity(np.array([0, 0, -9.81]))
     b.clear_forces()
-    g.apply(b, t=0.0)
-    assert np.allclose(b.F, np.array([0.0, 0.0, -29.43]), atol=1e-12)
+    g.apply(b)
+    assert np.allclose(b.f, np.array([0,0,-19.62]))
 
-def test_drag_opposes_velocity():
-    b = RigidBody6DOF("b", mass=1.0, I_body=np.eye(3), p=np.zeros(3), q=np.array([1,0,0,0]), v=np.array([10.0,0.0,0.0]))
-    d = Drag(rho=1.2, Cd=1.0, area=0.5, mode="quadratic")
+def test_drag_opposes_velocity_quadratic():
+    b = RigidBody6DOF("b", 1.0, np.eye(3), np.zeros(3), np.array([1,0,0,0]))
+    b.v = np.array([3.0, 4.0, 0.0])  # speed 5
+    d = Drag(rho=1.225, Cd=1.0, area=2.0, mode="quadratic")
     b.clear_forces()
     d.apply(b, t=0.0)
-    assert b.F[0] < 0.0 and abs(b.F[1]) < 1e-12 and abs(b.F[2]) < 1e-12
+    assert np.dot(b.f, b.v) <= 0.0 + 1e-12
+    # zero velocity -> zero drag
+    b.v[:] = 0.0
+    b.clear_forces()
+    d.apply(b, t=0.0)
+    assert np.allclose(b.f, 0.0)

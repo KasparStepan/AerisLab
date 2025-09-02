@@ -1,35 +1,43 @@
 from __future__ import annotations
 import csv
-from pathlib import Path
+import os
+from typing import Optional
+import numpy as np
+from .body import RigidBody6DOF
+from .mathutil import Array
 
 class CSVLogger:
-    """Minimal CSV logger for body states and resultant forces/torques."""
-    def __init__(self, path: str | Path) -> None:
-        self.path = Path(path)
-        self._fp = self.path.open("w", newline="")
-        self._w = csv.writer(self._fp)
-        self._w.writerow(self._header_written_example())
-        self._fp.flush()
+    """
+    Append time-stamped rows per body: p, q, v, w, resultant f, tau.
+    Creates header once. Safe for repeated runs.
+    """
+    def __init__(self, filepath: str) -> None:
+        self.filepath = filepath
+        self._header_written = False
+        # ensure directory
+        os.makedirs(os.path.dirname(filepath) or ".", exist_ok=True)
 
-    def _header_written_example(self):
-        cols = ["time"]
-        # We don't know bodies yet; write flexible header instructions
-        cols.append("NOTE: Columns repeat per body: name,p_x,p_y,p_z,q_w,q_x,q_y,q_z,v_x,v_y,v_z,w_x,w_y,w_z,F_x,F_y,F_z,T_x,T_y,T_z")
-        return cols
-
-    def write(self, t: float, world) -> None:
-        row = [f"{t:.9f}"]
+    def _ensure_header(self, world) -> None:
+        if self._header_written:
+            return
+        hdr = ["t"]
         for b in world.bodies:
-            row.extend([
-                b.name, f"{b.p[0]:.9e}", f"{b.p[1]:.9e}", f"{b.p[2]:.9e}",
-                f"{b.q[0]:.9e}", f"{b.q[1]:.9e}", f"{b.q[2]:.9e}", f"{b.q[3]:.9e}",
-                f"{b.v[0]:.9e}", f"{b.v[1]:.9e}", f"{b.v[2]:.9e}",
-                f"{b.w[0]:.9e}", f"{b.w[1]:.9e}", f"{b.w[2]:.9e}",
-                f"{b.F[0]:.9e}", f"{b.F[1]:.9e}", f"{b.F[2]:.9e}",
-                f"{b.T[0]:.9e}", f"{b.T[1]:.9e}", f"{b.T[2]:.9e}",
-            ])
-        self._w.writerow(row)
-        self._fp.flush()
+            base = f"{b.name}"
+            hdr += [f"{base}.p_x", f"{base}.p_y", f"{base}.p_z",
+                    f"{base}.q_w", f"{base}.q_x", f"{base}.q_y", f"{base}.q_z",
+                    f"{base}.v_x", f"{base}.v_y", f"{base}.v_z",
+                    f"{base}.w_x", f"{base}.w_y", f"{base}.w_z",
+                    f"{base}.F_x", f"{base}.F_y", f"{base}.F_z",
+                    f"{base}.T_x", f"{base}.T_y", f"{base}.T_z"]
+        with open(self.filepath, "w", newline="") as f:
+            writer = csv.writer(f)
+            writer.writerow(hdr)
+        self._header_written = True
 
-    def close(self) -> None:
-        self._fp.close()
+    def log(self, world) -> None:
+        self._ensure_header(world)
+        row = [world.t]
+        for b in world.bodies:
+            row += [*b.p, *b.q, *b.v, *b.w, *b.f, *b.tau]
+        with open(self.filepath, "a", newline="") as f:
+            csv.writer(f).writerow(row)

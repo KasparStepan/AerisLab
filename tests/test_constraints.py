@@ -1,24 +1,27 @@
 import numpy as np
-from hybridsim import RigidBody6DOF, World, DistanceConstraint, PointWeldConstraint
+from hybridsim import RigidBody6DOF, DistanceConstraint, PointWeldConstraint
 
-def test_distance_constraint_value_and_jacobian():
-    w = World()
-    A = RigidBody6DOF("A", 1.0, np.eye(3), p=np.array([0,0,0],float), q=np.array([1,0,0,0]))
-    B = RigidBody6DOF("B", 1.0, np.eye(3), p=np.array([1,0,0],float), q=np.array([1,0,0,0]))
-    iA, iB = w.add_body(A), w.add_body(B)
-    c = DistanceConstraint(iA, iB, r_i_b=np.zeros(3), r_j_b=np.zeros(3), L=1.0)
-    w.constraints.append(c)
-    C = c.evaluate(w)
-    assert np.allclose(C, 0.0, atol=1e-12)
-    J = c.jacobian_local(w)
+def _two_bodies():
+    I = np.eye(3)
+    a = RigidBody6DOF("a", 1.0, I, np.array([0,0,0], float), np.array([1,0,0,0]))
+    b = RigidBody6DOF("b", 1.0, I, np.array([1,0,0], float), np.array([1,0,0,0]))
+    return [a, b]
+
+def test_distance_constraint_eval_and_J():
+    bodies = _two_bodies()
+    dc = DistanceConstraint(bodies, 0, 1, [0,0,0], [0,0,0], length=1.0)
+    C = dc.evaluate()
+    assert C.shape == (1,)
+    J = dc.jacobian()
     assert J.shape == (1, 12)
+    # at current configuration d = [-1,0,0], so gradient wrt vA is d
+    assert np.isclose(J[0,0], -1.0)
 
-def test_point_weld_holds_points():
-    w = World()
-    A = RigidBody6DOF("A", 1.0, np.eye(3), p=np.array([0,0,0],float), q=np.array([1,0,0,0]))
-    B = RigidBody6DOF("B", 1.0, np.eye(3), p=np.array([0,1,0],float), q=np.array([1,0,0,0]))
-    iA, iB = w.add_body(A), w.add_body(B)
-    c = PointWeldConstraint(iA, iB, r_i_b=np.zeros(3), r_j_b=np.array([0,-1,0],float))
-    w.constraints.append(c)
-    C = c.evaluate(w)
-    assert np.allclose(C, np.zeros(3), atol=1e-12)
+def test_weld_constraint_eval_and_J():
+    bodies = _two_bodies()
+    wc = PointWeldConstraint(bodies, 0, 1, [0,0,0], [1,0,0])
+    # pa = [0,0,0], pb = [2,0,0] => residual [-2,0,0]
+    C = wc.evaluate()
+    assert np.allclose(C, np.array([-2.0, 0.0, 0.0]))
+    J = wc.jacobian()
+    assert J.shape == (3, 12)

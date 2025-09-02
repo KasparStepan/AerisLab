@@ -1,31 +1,28 @@
-# HybridSim
+# HybridSim — Modular Hybrid Multibody Dynamics (No Contact)
 
-Minimal, modular 3D multibody simulator (Python ≥ 3.10) for **rigid bodies** with **rigid equality constraints** solved via a **KKT** system. Two solver paths:
-
-- **Fixed-step**: semi-implicit Euler + KKT each step
-- **Variable-step** (optional): `scipy.integrate.solve_ivp` (Radau/BDF) with terminal ground event
-
-> **No contact modeling.** A designated “payload” body stops the simulation when it reaches the ground plane (`z ≤ ground_z`).
+**What it is:** A compact, extensible Python ≥3.10 framework for simulating 3D rigid-body multibody systems with rigid constraints via a KKT solve, two solver modes (fixed-step and SciPy IVP), and **no** contact modeling. If a designated **payload** hits the ground plane (z ≤ `ground_z`), the simulation halts immediately.
 
 ## Features
-
-- 6-DoF rigid bodies (p, unit quaternion q, linear/ang. velocity)
-- Forces: gravity, drag (linear/quadratic), optional soft spring (not part of DAE)
-- Constraints: distance (rigid tether), point weld; easy to add more
-- KKT solve:  
+- 6-DoF rigid bodies with quaternions (scalar-first), correct world inertia, off-center force torques.
+- Forces: gravity, drag (linear/quadratic, runtime-tunable), optional soft spring (two-body tether).
+- Constraints: distance (1 eq) and point-weld (3 eq) with explicit Jacobians.
+- KKT solve:
   \[
-  \begin{bmatrix} M & J^T \\ J & 0 \end{bmatrix}
-  \begin{bmatrix} a \\ \lambda \end{bmatrix} =
-  \begin{bmatrix} Q \\ -Jv - (\alpha C + \beta \dot C) \end{bmatrix}
+    \begin{bmatrix} M & J^\top \\ J & 0 \end{bmatrix}
+    \begin{bmatrix} a \\ \lambda \end{bmatrix} =
+    \begin{bmatrix} F \\ -Jv - \alpha C - \beta \dot C \end{bmatrix}
   \]
-- Quaternion integration (unit renormalization)
-- Clean API, type hints, docstrings, tests, examples, simple CSV logger
+  Scatter accelerations to bodies; integrate (semi-implicit Euler).
+- Two solver paths:
+  - **Fixed-step** `HybridSolver`: per-step KKT + symplectic Euler.
+  - **IVP** `HybridIVPSolver`: `solve_ivp` (Radau/BDF) computes `y' = [v, ½ q⊗[0,ω], a_lin, a_ang]` with accelerations from the KKT at `(t,y)`. Terminal event stops at touchdown.
+- **Termination on ground only:** no contact forces/impulses; fixed-step uses linear interpolation for touchdown time.
+- Clean API, `__slots__` on hot objects, float64, minimal heap churn.
 
-## Install
-
+## Install & Run
 ```bash
-python -m venv .venv && . .venv/bin/activate  # or .venv\Scripts\activate on Windows
-pip install -U pip numpy
-# optional for IVP solver:
+python -m venv .venv && . .venv/bin/activate  # Windows: .venv\Scripts\activate
+pip install -U pip
+pip install numpy pytest
+# Optional for IVP:
 pip install scipy
-pip install -U pytest

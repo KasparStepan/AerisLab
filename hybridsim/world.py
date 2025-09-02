@@ -1,71 +1,101 @@
 from __future__ import annotations
 import numpy as np
-from typing import Callable, Optional, List
+from typing import Callable, List, Optional
 from .body import RigidBody6DOF
-from .forces import Force
+from .forces import Gravity, Drag, Spring
+from .constraints import Constraint
 from .solver import HybridSolver, HybridIVPSolver
 
 class World:
-    """Holds bodies, forces, constraints, time, and termination logic."""
-    def __init__(self, ground_z: float = 0.0) -> None:
+    """
+    Container/orchestrator of bodies, forces, constraints, and time.
+
+    Termination: stop when payload.z <= ground_z (no contact). For fixed-step,
+    we detect crossing and linearly interpolate touchdown time t*.
+    """
+    def __init__(self, ground_z: float = 0.0, payload_index: int = 0) -> None:
         self.bodies: List[RigidBody6DOF] = []
-        self.global_forces: List[Force] = []
-        self.interaction_forces: List = []  # springs etc.
-        self.constraints: List = []
-        self.time: float = 0.0
-        self.ground_z: float = float(ground_z)
-        self.payload_index: Optional[int] = None
-        self.logger = None  # optional CSVLogger
-        # default termination: stop when payload z <= ground_z
-        self.termination_fn: Optional[Callable[['World'], bool]] = None
+        self.global_forces: List = []
+        self.interaction_forces: List[Spring] = []
+        self.constraints: List[Constraint] = []
+        self.payload_index = int(payload_index)
+        self.ground_z = float(ground_z)
+        self.t = 0.0
+        self.t_touchdown: Optional[float] = None
+        self.logger = None
+        self.termination_callback: Optional[Callable[['World'], bool]] = None
 
-    # --- Registry ---
-    def add_body(self, b: RigidBody6DOF) -> int:
-        self.bodies.append(b)
-        return len(self.bodies) - 1
-
-    def set_payload(self, body_index: int) -> None:
-        self.payload_index = int(body_index)
-
+    # configuration
     def set_logger(self, logger) -> None:
         self.logger = logger
 
-    def set_termination(self, fn: Callable[['World'], bool]) -> None:
-        """Set user termination predicate."""
-        self.termination_fn = fn
+    def add_body(self, body: RigidBody6DOF) -> int:
+        self.bodies.append(body)
+        return len(self.bodies) - 1
 
-    # --- Fixed-step path ---
-    def step(self, dt: float, solver: HybridSolver) -> None:
-        solver.step(self, dt)
+    def add_global_force(self, f) -> None:
+        self.global_forces.append(f)
 
-    def run(self, duration: float, dt: float, solver: Optional[HybridSolver] = None) -> None:
-        solver = solver or HybridSolver()
-        steps = int(np.ceil(duration / dt))
-        for _ in range(steps):
-            # check termination before stepping
-            if self._should_terminate():
-                break
-            self.step(dt, solver)
-            if self.logger is not None:
-                self.logger.write(self.time, self)
+    def add_interaction_force(self, fpair: Spring) -> None:
+        self.interaction_forces.append(fpair)
 
-            if self._should_terminate():
-                break
+    def add_constraint(self, c: Constraint) -> None:
+        self.constraints.append(c)
 
-    # --- Variable-step path ---
-    def integrate_to(self, t_end: float, ivp: Optional[HybridIVPSolver] = None):
-        ivp = ivp or HybridIVPSolver()
-        # Let IVP event terminate; still log after completion
-        sol = ivp.integrate_to(self, t_end)
+    def set_termination_callback(self, fn: Callable[['World'], bool]) -> None:
+        self.termination_callback = fn
+
+    # --- Fixed-step API ---
+    def step(self, solver: HybridSolver, dt: float) -> bool:
+        # 1) clear per-body force accumulators
+        for b in self.bodies:
+            b.clear_forces()
+
+        # 2) apply per-body & global & interaction forces
+        for b in self.bodies:
+            for fb in b.per_body_forces:
+                fb.apply(b, self.t)
+        for fg in self.global_forces:
+            for b in self.bodies:
+                fg.apply(b, self.t)
+        for fpair in self.interaction_forces:
+            fpair.apply_pair(self.t)
+
+        # 3) record pre-step payload z
+        payload = self.bodies[self.payload_index]
+        z_pre = payload.p[2]
+
+        # 4) KKT + integrate
+        solver.step(self.bodies, self.constraints, dt)
+        self.t += dt
+
+        # 5) logging
         if self.logger is not None:
-            self.logger.write(self.time, self)
-        return sol
+            self.logger.log(self)
 
-    # --- Helpers ---
-    def _should_terminate(self) -> bool:
-        if self.termination_fn is not None:
-            return bool(self.termination_fn(self))
-        # Default: stop when payload reaches ground
-        if self.payload_index is None or self.payload_index < 0 or self.payload_index >= len(self.bodies):
-            return False
-        return bool(self.bodies[self.payload_index].p[2] <= self.ground_z)
+        # 6) termination check (either custom or default ground)
+        stop = False
+        if self.termination_callback:
+            stop = bool(self.termination_callback(self))
+        else:
+            z_post = payload.p[2]
+            if (z_pre > self.ground_z) and (z_post <= self.ground_z):
+                # linear interpolation for touchdown time
+                frac = (z_pre - self.ground_z) / max((z_pre - z_post), 1e-12)
+                self.t_touchdown = float(self.t - dt + frac * dt)
+                stop = True
+            elif z_post <= self.ground_z:
+                # already below ground (edge)
+                self.t_touchdown = self.t
+                stop = True
+        return stop
+
+    def run(self, solver: HybridSolver, duration: float, dt: float) -> None:
+        t_end = self.t + float(duration)
+        while self.t < t_end:
+            if self.step(solver, dt):
+                break
+
+    # --- Variable-step/API wrapper ---
+    def integrate_to(self, solver: HybridIVPSolver, t_end: float):
+        return solver.integrate(self, t_end)

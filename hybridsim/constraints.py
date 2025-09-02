@@ -1,93 +1,119 @@
 from __future__ import annotations
 import numpy as np
+from typing import List, Tuple
 from .mathutil import skew
+from .body import RigidBody6DOF
+
+Array = np.ndarray
 
 class Constraint:
-    """Abstract constraint interface for rigid equality constraints C(q) = 0.
-    Each constraint returns:
-        - rows(): number of scalar equations m
-        - index_map(world): list of involved body indices
-        - evaluate(world): C(q) ∈ R^m (for diagnostics/Baumgarte)
-        - jacobian_local(world): velocity Jacobian wrt [v, ω] of involved bodies,
-          stacked horizontally as (m, 6*nb). World assembles global J.
-    """
+    """Abstract base for constraints used in KKT solve."""
     def rows(self) -> int: raise NotImplementedError
-    def index_map(self, world) -> list[int]: raise NotImplementedError
-    def evaluate(self, world) -> np.ndarray: raise NotImplementedError
-    def jacobian_local(self, world) -> np.ndarray: raise NotImplementedError
+    def index_map(self) -> List[int]: raise NotImplementedError  # body indices in world order
+    def evaluate(self) -> Array: raise NotImplementedError       # C(q)
+    def jacobian(self) -> Array: raise NotImplementedError       # J such that Cdot = J v_g (v_g stacks [v, w] per-body)
+
+    # Helper for velocity-level residual:
+    def c_dot(self, vstack: Array) -> Array:
+        J = self.jacobian()
+        return J @ vstack
+
 
 class DistanceConstraint(Constraint):
-    """Keep two attachment points at fixed distance L.
-
-    Let A on body i at r_i^B, B on body j at r_j^B.
-    World points: x_i = p_i + R_i r_i, x_j = p_j + R_j r_j.
-    Define d = x_j - x_i, constraint C = 0.5 (||d||^2 - L^2) = 0 [scalar].
-
-    Velocity Jacobian (wrt [v_i, ω_i, v_j, ω_j]):
-        ∂C/∂v_i = -d^T
-        ∂C/∂v_j = +d^T
-        ∂C/∂ω_i = -d^T [r_i]_x
-        ∂C/∂ω_j = +d^T [r_j]_x
     """
-    def __init__(self, body_i_idx: int, body_j_idx: int,
-                 r_i_b: np.ndarray, r_j_b: np.ndarray, L: float) -> None:
-        self.i = int(body_i_idx)
-        self.j = int(body_j_idx)
-        self.r_i_b = np.array(r_i_b, dtype=np.float64)
-        self.r_j_b = np.array(r_j_b, dtype=np.float64)
-        self.L = float(L)
+    Enforce fixed separation between two attachment points.
+    Scalar constraint: C = 0.5 (||d||^2 - L^2) = 0
+
+    Ċ = d · (vA + ωA×ra_w - vB - ωB×rb_w)
+      = [d^T, (ra_w × d)^T, -d^T, -(rb_w × d)^T] [vA, ωA, vB, ωB]
+    """
+    def __init__(
+        self,
+        world_bodies: List[RigidBody6DOF],
+        body_i: int,
+        body_j: int,
+        attach_i_local: Array,
+        attach_j_local: Array,
+        length: float,
+    ) -> None:
+        self.bodies = world_bodies
+        self.i = body_i
+        self.j = body_j
+        self.ri_local = np.asarray(attach_i_local, dtype=np.float64)
+        self.rj_local = np.asarray(attach_j_local, dtype=np.float64)
+        self.L = float(length)
 
     def rows(self) -> int: return 1
+    def index_map(self) -> List[int]: return [self.i, self.j]
 
-    def index_map(self, world) -> list[int]: return [self.i, self.j]
+    def _geom(self) -> Tuple[Array, Array, Array, Array, Array]:
+        bi = self.bodies[self.i]; bj = self.bodies[self.j]
+        Ri = bi.rotation_world(); Rj = bj.rotation_world()
+        ri_w = Ri @ self.ri_local
+        rj_w = Rj @ self.rj_local
+        pi = bi.p + ri_w
+        pj = bj.p + rj_w
+        d = pi - pj
+        return d, ri_w, rj_w, pi, pj
 
-    def evaluate(self, world) -> np.ndarray:
-        bi, bj = world.bodies[self.i], world.bodies[self.j]
-        Ri, Rj = bi.rotation_world(), bj.rotation_world()
-        ri_w, rj_w = Ri @ self.r_i_b, Rj @ self.r_j_b
-        xi, xj = bi.p + ri_w, bj.p + rj_w
-        d = xj - xi
-        return np.array([0.5 * (d @ d - self.L * self.L)], dtype=np.float64)
+    def evaluate(self) -> Array:
+        d, *_ = self._geom()
+        return np.array([0.5*(d @ d - self.L*self.L)], dtype=np.float64)
 
-    def jacobian_local(self, world) -> np.ndarray:
-        bi, bj = world.bodies[self.i], world.bodies[self.j]
-        Ri, Rj = bi.rotation_world(), bj.rotation_world()
-        ri_w, rj_w = Ri @ self.r_i_b, Rj @ self.r_j_b
-        xi, xj = bi.p + ri_w, bj.p + rj_w
-        d = xj - xi
-        dT = d.reshape(1, 3)
-        Ji = np.hstack([-dT, -dT @ skew(ri_w)])
-        Jj = np.hstack([+dT, +dT @ skew(rj_w)])
-        return np.hstack([Ji, Jj])  # (1, 12)
+    def jacobian(self) -> Array:
+        d, ri_w, rj_w, *_ = self._geom()
+        J = np.zeros((1, 12), dtype=np.float64)  # [v_i, w_i, v_j, w_j]
+        J[0, 0:3] = d
+        J[0, 3:6] = np.cross(ri_w, d)  # (ri_w × d)
+        J[0, 6:9] = -d
+        J[0, 9:12] = -np.cross(rj_w, d)
+        return J
+
 
 class PointWeldConstraint(Constraint):
-    """Enforce two attachment points to coincide in world: x_j - x_i = 0 (3 eq).
-    Velocity Jacobian blocks:
-        for body i: [-I, -[r_i]_x]
-        for body j: [+I, +[r_j]_x]
     """
-    def __init__(self, body_i_idx: int, body_j_idx: int,
-                 r_i_b: np.ndarray, r_j_b: np.ndarray) -> None:
-        self.i = int(body_i_idx)
-        self.j = int(body_j_idx)
-        self.r_i_b = np.array(r_i_b, dtype=np.float64)
-        self.r_j_b = np.array(r_j_b, dtype=np.float64)
+    Enforce coincidence of two attachment points (3 equations):
+    C = pa - pb = 0
+
+    Velocity-level:
+      Ċ = vA + ωA×ra_w - vB - ωB×rb_w
+         = [I, -skew(ra_w), -I,  +skew(rb_w)] [vA, ωA, vB, ωB]
+    """
+    def __init__(
+        self,
+        world_bodies: List[RigidBody6DOF],
+        body_i: int,
+        body_j: int,
+        attach_i_local: Array,
+        attach_j_local: Array,
+    ) -> None:
+        self.bodies = world_bodies
+        self.i = body_i
+        self.j = body_j
+        self.ri_local = np.asarray(attach_i_local, dtype=np.float64)
+        self.rj_local = np.asarray(attach_j_local, dtype=np.float64)
 
     def rows(self) -> int: return 3
+    def index_map(self) -> List[int]: return [self.i, self.j]
 
-    def index_map(self, world) -> list[int]: return [self.i, self.j]
+    def _geom(self):
+        bi = self.bodies[self.i]; bj = self.bodies[self.j]
+        Ri = bi.rotation_world(); Rj = bj.rotation_world()
+        ri_w = Ri @ self.ri_local
+        rj_w = Rj @ self.rj_local
+        pi = bi.p + ri_w
+        pj = bj.p + rj_w
+        return ri_w, rj_w, pi, pj
 
-    def evaluate(self, world) -> np.ndarray:
-        bi, bj = world.bodies[self.i], world.bodies[self.j]
-        Ri, Rj = bi.rotation_world(), bj.rotation_world()
-        ri_w, rj_w = Ri @ self.r_i_b, Rj @ self.r_j_b
-        xi, xj = bi.p + ri_w, bj.p + rj_w
-        return (xj - xi).astype(np.float64)
+    def evaluate(self) -> Array:
+        ri_w, rj_w, pi, pj = self._geom()
+        return (pi - pj).astype(np.float64)
 
-    def jacobian_local(self, world) -> np.ndarray:
-        bi, bj = world.bodies[self.i], world.bodies[self.j]
-        Ri, Rj = bi.rotation_world(), bj.rotation_world()
-        ri_w, rj_w = Ri @ self.r_i_b, Rj @ self.r_j_b
-        Ji = np.hstack([-np.eye(3), -skew(ri_w)])
-        Jj = np.hstack([+np.eye(3), +skew(rj_w)])
-        return np.hstack([Ji, Jj])  # (3, 12)
+    def jacobian(self) -> Array:
+        ri_w, rj_w, *_ = self._geom()
+        J = np.zeros((3, 12), dtype=np.float64)
+        J[:, 0:3] = np.eye(3)
+        J[:, 3:6] = -skew(ri_w)
+        J[:, 6:9] = -np.eye(3)
+        J[:, 9:12] = skew(rj_w)
+        return J
