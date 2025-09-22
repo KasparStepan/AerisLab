@@ -110,7 +110,7 @@ class HybridIVPSolver:
         self.method = method
         self.rtol = float(rtol)
         self.atol = float(atol)
-        self.max_step = max_step
+        self.max_step = np.inf if max_step is None else float(max_step)
         self.alpha = float(alpha)
         self.beta = float(beta)
 
