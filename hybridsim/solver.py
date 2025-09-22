@@ -43,14 +43,18 @@ def assemble_system(
         idx = c.index_map()
         Jloc = c.jacobian()  # shape (r, 12) for two-body constraints here
         # scatter into global
-        i, j = idx
-        J[row:row+r, 6*i:6*i+6] = Jloc[:, 0:6]
-        J[row:row+r, 6*j:6*j+6] = Jloc[:, 6:12]
+        for local_body, body_index in enumerate(idx):
+            col_start = 6 * local_body
+            col_end = col_start + 6
+            g_start = 6 * body_index
+            g_end = g_start + 6
+            J[row:row+r, g_start:g_end] = Jloc[:, col_start:col_end]
 
         # velocity-level rhs with optional Baumgarte: -J v - α C - β Ċ
+        vel_stack = np.concatenate([v[6*k:6*k+6] for k in idx])
         C = c.evaluate()
-        Cdot = c.c_dot(v[None, :] if v.ndim == 1 else v)
-        rhs[row:row+r] = - (Jloc @ np.concatenate([v[6*i:6*i+6], v[6*j:6*j+6]])).ravel()
+        Cdot = c.c_dot(vel_stack)
+        rhs[row:row+r] = -(Jloc @ vel_stack).ravel()
         rhs[row:row+r] += -alpha * C - beta * Cdot
         row += r
 
