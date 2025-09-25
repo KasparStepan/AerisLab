@@ -1,49 +1,84 @@
-# Example: two bodies with a rigid tether, gravity + drag.
+# Parachute fixed-step example using world.save_plots() for quick visuals.
+
+from __future__ import annotations
+import os
 import numpy as np
 import time
-from hybridsim import (
-    World, RigidBody6DOF, Gravity, Drag,
-    RigidTetherJoint, HybridSolver, CSVLogger
-)
 
-def main():
-    world = World(ground_z=0.0, payload_index=0)
+# Robust imports for module/script execution
+try:
+    from ..hybridsim import (
+        World, RigidBody6DOF, Gravity, Drag, RigidTetherJoint,
+        HybridSolver, CSVLogger
+    )
+except ImportError:
+    from hybridsim import (
+        World, RigidBody6DOF, Gravity, Drag, RigidTetherJoint,
+        HybridSolver, CSVLogger
+    )
+
+
+def build_world() -> World:
+    """Create payload + canopy linked by a rigid tether (distance constraint)."""
+    w = World(ground_z=0.0, payload_index=0)
 
     # Bodies
-    I_sphere = (2/5) * 10.0 * 0.2**2 * np.eye(3)  # crude
-    payload = RigidBody6DOF("payload", mass=10.0, inertia_tensor_body=I_sphere,
-                            position=np.array([0.0, 0.0, 200.0]),
-                            orientation=np.array([1.0, 0.0, 0.0, 0.0]))
-    canopy  = RigidBody6DOF("canopy", mass=2.0, inertia_tensor_body=0.1*np.eye(3),
-                            position=np.array([0.0, 0.0, 205.0]),
-                            orientation=np.array([1.0, 0.0, 0.0, 0.0]))
+    I_sphere = (2 / 5) * 10.0 * 0.2**2 * np.eye(3)  # crude sphere inertia for payload
+    payload = RigidBody6DOF(
+        "payload", mass=10.0, inertia_tensor_body=I_sphere,
+        position=np.array([0.0, 0.0, 200.0]),
+        orientation=np.array([1.0, 0.0, 0.0, 0.0]),
+    )
+    canopy = RigidBody6DOF(
+        "canopy", mass=2.0, inertia_tensor_body=0.1 * np.eye(3),
+        position=np.array([0.0, 0.0, 205.0]),
+        orientation=np.array([1.0, 0.0, 0.0, 0.0]),
+    )
 
-    payload_idx = world.add_body(payload)
-    canopy_idx = world.add_body(canopy)
-    world.payload_index = payload_idx
+    pidx = w.add_body(payload)
+    cidx = w.add_body(canopy)
+    w.payload_index = pidx
 
-    # Forces
-    world.add_global_force(Gravity(np.array([0.0, 0.0, -9.81])))
+    # Global gravity
+    w.add_global_force(Gravity(np.array([0.0, 0.0, -9.81])))
 
-    # Time-varying canopy area to mimic inflation
+    # Drag (with simple inflation schedule for canopy area)
     def area_schedule(t, body):
-        return min(15.0, 0.5 + 1.5*t)  # m^2
+        t = 0.0 if t is None else float(t)
+        return min(15.0, 0.5 + 1.5 * t)  # m^2
+
     payload.per_body_forces.append(Drag(rho=1.225, Cd=1.0, area=0.3, mode="quadratic"))
     canopy.per_body_forces.append(Drag(rho=1.225, Cd=1.5, area=area_schedule, mode="quadratic"))
 
-    # Joint: rigid tether of fixed length between attachment points
-    tether = RigidTetherJoint(payload_idx, canopy_idx, attach_i_local=[0,0,0], attach_j_local=[0,0,0], length=5.0)
-    world.add_constraint(tether.attach(world.bodies))
+    # Rigid tether (fixed distance between attachment points)
+    tether = RigidTetherJoint(pidx, cidx, attach_i_local=[0, 0, 0], attach_j_local=[0, 0, 0], length=5.0)
+    w.add_constraint(tether.attach(w.bodies))
+    return w
 
-    # Logger
-    world.set_logger(CSVLogger("logs/parachute_fixed.csv"))
 
-    # Integrate fixed-step until touchdown
-    solver = HybridSolver(alpha=5.0, beta=2.0)   # modest stabilization
+def main():
+    world = build_world()
+
+    # CSV logger
+    os.makedirs("logs", exist_ok=True)
+    csv_path = os.path.join("logs", "parachute_fixed.csv")
+    world.set_logger(CSVLogger(csv_path))
+
+    # Fixed-step solver (Baumgarte stabilization)
+    solver = HybridSolver(alpha=5.0, beta=0.2)
+
+    # Run until touchdown (no contact modeling; stop on z <= ground_z)
     dt = 0.01
-    world.run(solver, duration=120.0, dt=dt)
+    world.run(solver, duration=200.0, dt=dt)
 
-    print(f"Stopped at t={world.t:.3f}s, touchdown≈{world.t_touchdown:.3f}s")
+    # Report
+    print(f"Fixed-step finished: t={world.t:.6f}s, touchdown≈{world.t_touchdown}")
+    print(f"CSV: {csv_path}")
+
+    # One-liner plots from CSV
+    os.makedirs("plots", exist_ok=True)
+    world.save_plots(csv_path, bodies=["payload", "canopy"], plots_dir="plots", show=False)
+    print("Plots saved under: plots/")
 
 if __name__ == "__main__":
     start = time.time()
