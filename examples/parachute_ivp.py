@@ -1,5 +1,6 @@
 # Same physical setup as fixed-step, but with SciPy IVP (Radau) + terminal event.
 import numpy as np
+import time
 from hybridsim import (
     World, RigidBody6DOF, Gravity, Drag,
     RigidTetherJoint, HybridIVPSolver, CSVLogger
@@ -38,4 +39,7 @@ def main():
     print(f"IVP finished at t={world.t:.6f}s, touchdown≈{world.t_touchdown}")
 
 if __name__ == "__main__":
+    start = time.time()
     main()
+    end = time.time()
+    print(f"Elapsed time: {end - start:.3f}s")

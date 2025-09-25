@@ -1,5 +1,6 @@
 # Example: two bodies with a rigid tether, gravity + drag.
 import numpy as np
+import time
 from hybridsim import (
     World, RigidBody6DOF, Gravity, Drag,
     RigidTetherJoint, HybridSolver, CSVLogger
@@ -45,4 +46,7 @@ def main():
     print(f"Stopped at t={world.t:.3f}s, touchdown≈{world.t_touchdown:.3f}s")
 
 if __name__ == "__main__":
+    start = time.time()
     main()
+    end = time.time()
+    print(f"Elapsed time: {end - start:.3f}s")
