@@ -26,3 +26,24 @@ pip install -U pip
 pip install numpy pytest
 # Optional for IVP:
 pip install scipy
+
+### Visualizing results
+
+After running an example (e.g., `examples/parachute_fixed.py`) you’ll get a CSV log at `logs/*.csv`.
+
+Plot trajectory, velocity, acceleration, and forces:
+
+```bash
+python examples/plot_parachute_logs.py
+
+
+---
+
+## Notes & tips
+
+- **Acceleration source:** since we don’t currently log accelerations, we compute them by differentiating the logged velocity with `np.gradient`, which handles uneven time steps reasonably.
+- **Multiple bodies:** just change `body = "canopy"` to inspect the other body, or call the plotting functions twice for both.
+- **Saving vs showing:** all plotting functions accept `save_path` and `show` flags so you can render images in CI or notebooks without popping windows.
+
+If you want real-time plotting during a fixed-step run, we can add a tiny “live plot” hook that updates every N steps—just say the word.
+

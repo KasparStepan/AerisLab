@@ -98,4 +98,57 @@ class World:
 
     # --- Variable-step/API wrapper ---
     def integrate_to(self, solver: HybridIVPSolver, t_end: float):
+        """Integrate with IVP solver; return SciPy OdeResult."""
         return solver.integrate(self, t_end)
+
+    # --- One-liner plotting helper ---
+    def save_plots(
+        self,
+        csv_path: str,
+        bodies: list[str] | None = None,
+        plots_dir: str = "plots",
+        show: bool = False,
+    ) -> None:
+        """
+        Generate trajectory, velocity/acceleration, and force plots
+        for selected bodies from a CSV log.
+
+        Parameters
+        ----------
+        csv_path : str
+            Path to CSV log created by CSVLogger.
+        bodies : list[str] or None
+            Which bodies to plot. If None, all world.bodies are used.
+        plots_dir : str
+            Directory to save PNG figures.
+        show : bool
+            If True, show figures interactively.
+        """
+        from .plotting import (
+            plot_trajectory_3d,
+            plot_velocity_and_acceleration,
+            plot_forces,
+        )
+        import os
+        os.makedirs(plots_dir, exist_ok=True)
+
+        if bodies is None:
+            bodies = [b.name for b in self.bodies]
+
+        for name in bodies:
+            plot_trajectory_3d(
+                csv_path, name,
+                save_path=os.path.join(plots_dir, f"{name}_traj.png"),
+                show=show,
+            )
+            plot_velocity_and_acceleration(
+                csv_path, name,
+                save_path=os.path.join(plots_dir, f"{name}_vel_acc.png"),
+                show=show,
+            )
+            plot_forces(
+                csv_path, name,
+                save_path=os.path.join(plots_dir, f"{name}_forces.png"),
+                show=show,
+            )
+        print(f"[World] Plots saved to: {plots_dir}")

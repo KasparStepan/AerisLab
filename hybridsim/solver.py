@@ -1,9 +1,11 @@
 from __future__ import annotations
 import numpy as np
-from typing import List, Optional, Tuple
+from typing import List, Tuple
 from .body import RigidBody6DOF
 from .constraints import Constraint
-from .mathutil import Array
+
+Array = np.ndarray
+
 
 def assemble_system(
     bodies: List[RigidBody6DOF],
@@ -16,12 +18,15 @@ def assemble_system(
       [ M  J^T ] [a] = [F]
       [ J   0  ] [λ]   [rhs]
 
-    Returns (M, J, F, rhs, vstack)
+    Returns (M, J, F, rhs, v)
+
+    Velocity-level stabilization:
+      rhs = -Jv - α C - β Ċ, with Ċ = Jv  ⇒ rhs = -(1+β) Jv - α C
     """
     nb = len(bodies)
     nv = 6 * nb
 
-    # Mass & forces
+    # Mass, forces, velocities
     M = np.zeros((nv, nv), dtype=np.float64)
     F = np.zeros(nv, dtype=np.float64)
     v = np.zeros(nv, dtype=np.float64)
@@ -40,22 +45,20 @@ def assemble_system(
     row = 0
     for c in constraints:
         r = c.rows()
-        idx = c.index_map()
-        Jloc = c.jacobian()  # shape (r, 12) for two-body constraints here
-        # scatter into global
-        for local_body, body_index in enumerate(idx):
-            col_start = 6 * local_body
-            col_end = col_start + 6
-            g_start = 6 * body_index
-            g_end = g_start + 6
-            J[row:row+r, g_start:g_end] = Jloc[:, col_start:col_end]
+        i, j = c.index_map()
+        Jloc = c.jacobian()  # (r, 12) for two-body constraints
 
-        # velocity-level rhs with optional Baumgarte: -J v - α C - β Ċ
-        vel_stack = np.concatenate([v[6*k:6*k+6] for k in idx])
+        # Scatter local J into global
+        J[row:row+r, 6*i:6*i+6] = Jloc[:, 0:6]
+        J[row:row+r, 6*j:6*j+6] = Jloc[:, 6:12]
+
+        # Local Jv consistent with Jloc
+        v_loc = np.concatenate([v[6*i:6*i+6], v[6*j:6*j+6]])
+        Jv = Jloc @ v_loc  # (r,)
+
+        # Residual with Baumgarte
         C = c.evaluate()
-        Cdot = c.c_dot(vel_stack)
-        rhs[row:row+r] = -(Jloc @ vel_stack).ravel()
-        rhs[row:row+r] += -alpha * C - beta * Cdot
+        rhs[row:row+r] = -(1.0 + beta) * Jv - alpha * C
         row += r
 
     return M, J, F, rhs, v
@@ -63,58 +66,59 @@ def assemble_system(
 
 def solve_kkt(M: Array, J: Array, F: Array, rhs: Array) -> Tuple[Array, Array]:
     """
-    Solve KKT system for accelerations a and multipliers λ.
+    Solve the KKT system for accelerations a and multipliers λ:
+
+      [ M  J^T ] [a] = [F]
+      [ J   0  ] [λ]   [rhs]
     """
     nv = M.shape[0]
     m = J.shape[0]
+
     K = np.zeros((nv + m, nv + m), dtype=np.float64)
-    rhs_full = np.zeros(nv + m, dtype=np.float64)
-    # [M J^T; J 0] [a; λ] = [F; rhs]
+    b = np.zeros(nv + m, dtype=np.float64)
+
     K[0:nv, 0:nv] = M
     K[0:nv, nv:nv+m] = J.T
     K[nv:nv+m, 0:nv] = J
-    rhs_full[0:nv] = F
-    rhs_full[nv:nv+m] = rhs
+    b[0:nv] = F
+    b[nv:nv+m] = rhs
 
-    sol = np.linalg.solve(K, rhs_full)
+    sol = np.linalg.solve(K, b)
     a = sol[0:nv]
     lam = sol[nv:nv+m]
     return a, lam
 
 
 class HybridSolver:
-    """
-    Fixed-step hybrid solver (semi-implicit Euler + KKT each step).
-    """
+    """Fixed-step hybrid solver (semi-implicit Euler + KKT each step)."""
     def __init__(self, alpha: float = 0.0, beta: float = 0.0) -> None:
         self.alpha = float(alpha)
         self.beta = float(beta)
 
     def step(self, bodies: List[RigidBody6DOF], constraints: List[Constraint], dt: float) -> np.ndarray:
-        # Assemble forces already accumulated on bodies externally.
         M, J, F, rhs, _ = assemble_system(bodies, constraints, self.alpha, self.beta)
         a, _ = solve_kkt(M, J, F, rhs)
-        # Scatter accelerations and integrate
+
         for i, b in enumerate(bodies):
             a_lin = a[6*i:6*i+3]
             a_ang = a[6*i+3:6*i+6]
             b.integrate_semi_implicit(dt, a_lin, a_ang)
-        return a  # returned for diagnostics
+        return a
 
 
 class HybridIVPSolver:
     """
     Variable-step stiff integrator using scipy.integrate.solve_ivp (Radau/BDF).
-    State per body: [p(3), q(4), v(3), w(3)] => 13 per body.
+    State per body: [p(3), q(4), v(3), ω(3)] => 13 per body.
     Accelerations come from KKT at (t, y).
     Terminal event: payload_z - ground_z == 0 (direction -1).
     """
-    def __init__(self, method: str = "Radau", rtol: float = 1e-6, atol: float = 1e-8, max_step: float | None = None,
-                 alpha: float = 0.0, beta: float = 0.0) -> None:
+    def __init__(self, method: str = "Radau", rtol: float = 1e-6, atol: float = 1e-8,
+                 max_step: float | None = None, alpha: float = 0.0, beta: float = 0.0) -> None:
         self.method = method
         self.rtol = float(rtol)
         self.atol = float(atol)
-        self.max_step = np.inf if max_step is None else float(max_step)
+        self.max_step = max_step
         self.alpha = float(alpha)
         self.beta = float(beta)
 
@@ -125,12 +129,10 @@ class HybridIVPSolver:
         return np.array(y, dtype=np.float64)
 
     def _unpack_to_world(self, y: np.ndarray, bodies: List[RigidBody6DOF]) -> None:
-        # Overwrite bodies' state from flat y
         for k, b in enumerate(bodies):
             off = 13*k
             b.p[:] = y[off:off+3]
             b.q[:] = y[off+3:off+7]
-            # renormalization is done by dynamics via quaternion derivative integration
             b.v[:] = y[off+7:off+10]
             b.w[:] = y[off+10:off+13]
 
@@ -144,10 +146,9 @@ class HybridIVPSolver:
         constraints = world.constraints
 
         def rhs(t: float, y: np.ndarray) -> np.ndarray:
-            # Copy y into bodies (no integration here)
             self._unpack_to_world(y, bodies)
 
-            # Clear and re-apply forces at time t
+            # Clear & apply forces at time t
             for b in bodies:
                 b.clear_forces()
                 for fb in b.per_body_forces:
@@ -158,7 +159,7 @@ class HybridIVPSolver:
             for fpair in world.interaction_forces:
                 fpair.apply_pair(t)
 
-            # Assemble and solve KKT for accelerations
+            # Assemble and solve KKT
             M, J, F, rhs_v, _ = assemble_system(bodies, constraints, self.alpha, self.beta)
             a, _ = solve_kkt(M, J, F, rhs_v)
 
@@ -169,22 +170,16 @@ class HybridIVPSolver:
                 a_ang = a[6*i+3:6*i+6]
                 off = 13*i
                 ydot[off:off+3] = b.v
-                # qdot = 0.5 q ⊗ [0, w]
                 from .mathutil import quat_derivative, quat_normalize
-                qdot = quat_derivative(b.q, b.w)
-                # Keep quaternion normalized via derivative dynamics; normalize lightly:
                 b.q[:] = quat_normalize(b.q)
-                ydot[off+3:off+7] = qdot
+                ydot[off+3:off+7] = quat_derivative(b.q, b.w)
                 ydot[off+7:off+10] = a_lin
                 ydot[off+10:off+13] = a_ang
             return ydot
 
         def touchdown_event(t: float, y: np.ndarray) -> float:
-            # z_payload - ground_z (terminal when == 0; stopping on descending)
-            idx = world.payload_index
-            z = y[13*idx + 2]
+            z = y[13*world.payload_index + 2]
             return float(z - world.ground_z)
-
         touchdown_event.terminal = True   # type: ignore[attr-defined]
         touchdown_event.direction = -1.0  # type: ignore[attr-defined]
 
@@ -200,8 +195,30 @@ class HybridIVPSolver:
             events=touchdown_event,
             dense_output=False,
         )
+
         # Update world with final state
         self._unpack_to_world(sol.y[:, -1], bodies)
         world.t = float(sol.t[-1])
         world.t_touchdown = float(sol.t_events[0][0]) if len(sol.t_events[0]) else None
+
+        # --- Post-run CSV logging along solver time grid (if logger set) ---
+        if world.logger is not None and sol.t.size > 0:
+            for k, tk in enumerate(sol.t):
+                # Set state to this sample
+                self._unpack_to_world(sol.y[:, k], bodies)
+                world.t = float(tk)
+
+                # Re-apply forces for this sample for consistent logging
+                for b in bodies:
+                    b.clear_forces()
+                    for fb in b.per_body_forces:
+                        fb.apply(b, tk)
+                for fg in world.global_forces:
+                    for b in bodies:
+                        fg.apply(b, tk)
+                for fpair in world.interaction_forces:
+                    fpair.apply_pair(tk)
+
+                world.logger.log(world)
+
         return sol
