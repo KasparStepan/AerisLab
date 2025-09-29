@@ -26,6 +26,7 @@ pip install -U pip
 pip install numpy pytest
 # Optional for IVP:
 pip install scipy
+```
 
 ### Visualizing results
 
@@ -35,7 +36,7 @@ Plot trajectory, velocity, acceleration, and forces:
 
 ```bash
 python examples/plot_parachute_logs.py
-
+```
 
 ---
 
