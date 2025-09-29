@@ -8,12 +8,12 @@ import time
 # Robust imports for module/script execution
 try:
     from ..hybridsim import (
-        World, RigidBody6DOF, Gravity, Drag, RigidTetherJoint,
+        World, RigidBody6DOF, Gravity, Drag, ParachuteDrag, RigidTetherJoint,
         HybridSolver, CSVLogger
     )
 except ImportError:
     from hybridsim import (
-        World, RigidBody6DOF, Gravity, Drag, RigidTetherJoint,
+        World, RigidBody6DOF, Gravity, Drag, ParachuteDrag, RigidTetherJoint,
         HybridSolver, CSVLogger
     )
 
@@ -41,14 +41,9 @@ def build_world() -> World:
 
     # Global gravity
     w.add_global_force(Gravity(np.array([0.0, 0.0, -9.81])))
-
-    # Drag (with simple inflation schedule for canopy area)
-    def area_schedule(t, body):
-        t = 0.0 if t is None else float(t)
-        return min(15.0, 0.5 + 1.5 * t)  # m^2
-
+    # Per-body forces
     payload.per_body_forces.append(Drag(rho=1.225, Cd=1.0, area=0.3, mode="quadratic"))
-    canopy.per_body_forces.append(Drag(rho=1.225, Cd=1.5, area=area_schedule, mode="quadratic"))
+    canopy.per_body_forces.append(ParachuteDrag(rho=1.225, Cd=1.5, area=5, activation_velocity=25))
 
     # Rigid tether (fixed distance between attachment points)
     tether = RigidTetherJoint(pidx, cidx, attach_i_local=[0, 0, 0], attach_j_local=[0, 0, 0], length=5.0)
@@ -65,7 +60,7 @@ def main():
     world.set_logger(CSVLogger(csv_path))
 
     # Fixed-step solver (Baumgarte stabilization)
-    solver = HybridSolver(alpha=5.0, beta=0.2)
+    solver = HybridSolver(alpha=8.0, beta=0.3)
 
     # Run until touchdown (no contact modeling; stop on z <= ground_z)
     dt = 0.01
@@ -76,9 +71,9 @@ def main():
     print(f"CSV: {csv_path}")
 
     # One-liner plots from CSV
-    os.makedirs("plots", exist_ok=True)
-    world.save_plots(csv_path, bodies=["payload", "canopy"], plots_dir="plots", show=False)
-    print("Plots saved under: plots/")
+    os.makedirs("plots_fixed", exist_ok=True)
+    world.save_plots(csv_path, bodies=["payload", "canopy"], plots_dir="plots_fixed", show=False)
+    print("Plots saved under: plots_fixed/")
 
 if __name__ == "__main__":
     start = time.time()

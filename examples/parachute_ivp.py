@@ -30,13 +30,8 @@ def build_world() -> World:
     # Forces
     w.add_global_force(Gravity(np.array([0.0, 0.0, -9.81])))
 
-    # Canopy inflation schedule
-    def area_schedule(t, body):
-        t = 0.0 if t is None else float(t)
-        return min(15.0, 0.5 + 1.5 * t)
-
     payload.per_body_forces.append(Drag(rho=1.225, Cd=1.0, area=0.3, mode="quadratic"))
-    canopy.per_body_forces.append(ParachuteDrag(rho=1.225, Cd=1.5, area=5, activation_velocity=5))
+    canopy.per_body_forces.append(ParachuteDrag(rho=1.225, Cd=1.5, area=5, activation_velocity=25))
 
     # Rigid tether (distance constraint)
     tether = RigidTetherJoint(pidx, cidx, [0,0,0], [0,0,0], length=5.0)
@@ -71,9 +66,9 @@ def main():
     print(f"World time t={world.t:.6f}s, touchdown={world.t_touchdown}")
 
     # One-liner plots from CSV
-    os.makedirs("plots", exist_ok=True)
-    world.save_plots(csv_path, bodies=["payload", "canopy"], plots_dir="plots", show=False)
-    print(f"CSV: {csv_path}\nPlots saved under: plots/")
+    os.makedirs("plots_ivp", exist_ok=True)
+    world.save_plots(csv_path, bodies=["payload", "canopy"], plots_dir="plots_ivp", show=False)
+    print(f"CSV: {csv_path}\nPlots saved under: plots_ivp/")
 
 if __name__ == "__main__":
     start = time.time()

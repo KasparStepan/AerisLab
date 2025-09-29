@@ -100,6 +100,9 @@ class ParachuteDrag(Drag):
             if speed > 0.0: 
                 f = -0.5 * self.rho * Cd * A * speed * v
                 body.apply_force(f)
+        else:
+            f = np.zeros(3)
+            body.apply_force(f)
 
 
     def eval_area(self,tval,body) -> float:
