@@ -60,7 +60,7 @@ def main():
     world.set_logger(CSVLogger(csv_path))
 
     # Fixed-step solver (Baumgarte stabilization)
-    solver = HybridSolver(alpha=8.0, beta=0.3)
+    solver = HybridSolver(alpha=5.0, beta=0.2)
 
     # Run until touchdown (no contact modeling; stop on z <= ground_z)
     dt = 0.01
