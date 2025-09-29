@@ -70,10 +70,21 @@ class ParachuteDrag(Drag):
         Cd: float | Callable[[float, RigidBody6DOF], float] = 1.5,
         area_schedule: Callable[[float, RigidBody6DOF], float] = lambda t, body: 1.0,
         mode: str = "quadratic",
+        activation_time: float = 0.0,
+        activation_altitude: float = 100.0,
+        activation_velocity: float = -5.0,
     ) -> None:
         super().__init__(rho=rho, Cd=Cd, area=area_schedule, mode=mode)
+        self.activation_time = activation_time
+        self.activation_altitude = activation_altitude
+        self.activation_velocity = activation_velocity
 
     def apply(self, body: RigidBody6DOF, t: Optional[float] = None) -> None:
+        tval = 0.0 if t is None else float(t)
+        v = body.v
+        v_mag = np.linalg.norm(v)
+
+        
         super().apply(body, t)
 
 class Spring:
