@@ -1,5 +1,5 @@
 import numpy as np
-from hybridsim import (
+from modeling import (
     World, RigidBody6DOF, Gravity, RigidTetherJoint, HybridSolver
 )
 

@@ -7,12 +7,12 @@ import time
 
 # Robust imports for module/script execution
 try:
-    from ..hybridsim import (
+    from ..modeling import (
         World, RigidBody6DOF, Gravity, Drag, ParachuteDrag, RigidTetherJoint,
         HybridSolver, CSVLogger
     )
 except ImportError:
-    from hybridsim import (
+    from modeling import (
         World, RigidBody6DOF, Gravity, Drag, ParachuteDrag, RigidTetherJoint,
         HybridSolver, CSVLogger
     )

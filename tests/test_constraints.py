@@ -1,5 +1,5 @@
 import numpy as np
-from hybridsim import RigidBody6DOF, DistanceConstraint, PointWeldConstraint
+from modeling import RigidBody6DOF, DistanceConstraint, PointWeldConstraint
 
 def _two_bodies():
     I = np.eye(3)
