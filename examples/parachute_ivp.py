@@ -36,7 +36,7 @@ def build_world() -> World:
         return min(15.0, 0.5 + 1.5 * t)
 
     payload.per_body_forces.append(Drag(rho=1.225, Cd=1.0, area=0.3, mode="quadratic"))
-    canopy.per_body_forces.append(ParachuteDrag(rho=1.225, Cd=1.5, area=area_schedule, mode="quadratic"))
+    canopy.per_body_forces.append(ParachuteDrag(rho=1.225, Cd=1.5, area=5))
 
     # Rigid tether (distance constraint)
     tether = RigidTetherJoint(pidx, cidx, [0,0,0], [0,0,0], length=5.0)

@@ -16,6 +16,7 @@ __all__ = [
     "RigidBody6DOF",
     "Gravity",
     "Drag",
+    "ParachuteDrag",
     "Spring",
     "DistanceConstraint",
     "PointWeldConstraint",

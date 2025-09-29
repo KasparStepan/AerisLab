@@ -68,28 +68,48 @@ class ParachuteDrag(Drag):
         self,
         rho: float = 1.225,
         Cd: float | Callable[[float, RigidBody6DOF], float] = 1.5,
-        area_schedule: Callable[[float, RigidBody6DOF], float] = lambda t, body: 1.0,
+        area: float | Callable[[float, RigidBody6DOF], float] = 1.0,
         mode: str = "quadratic",
         activation_time: float = 0.0,
         activation_altitude: float = 100.0,
         activation_velocity: float = -50.0,
     ) -> None:
-        super().__init__(rho=rho, Cd=Cd, area=area_schedule, mode=mode)
+        super().__init__(rho=rho, Cd=Cd, area=area, mode=mode)
         self.activation_time = activation_time
         self.activation_altitude = activation_altitude
         self.activation_velocity = activation_velocity
+        self.activation_status = False
 
     def apply(self, body: RigidBody6DOF, t: Optional[float] = None) -> None:
+        
         tval = 0.0 if t is None else float(t)
         v = body.v
         v_mag = np.linalg.norm(v)
-        if (v_mag < abs(self.activation_velocity)):
+        
+        # Check activation conditions
+        if v_mag >= abs(self.activation_velocity) and self.activation_status == False:
+            self.activation_status = True
+            self.activation_time = tval
+
+        # Apply drag only if activated
+        if self.activation_status:
             Cd = self._value(self.Cd, tval, body)
-            A = self._value(self.area, tval, body)
-            speed = np.linalg.norm(v)
-            if speed > 0.0:
+            A = self.eval_area(tval, body)
+            speed = v_mag
+            if speed > 0.0: 
                 f = -0.5 * self.rho * Cd * A * speed * v
                 body.apply_force(f)
+
+
+    def eval_area(self,tval,body) -> float:
+        tval = 0.0 if tval is None else float(tval)
+
+        if self.activation_status:  
+            self.area =  min(15.0, 0.5 + 1.5 * (tval - self.activation_time))
+        else:
+            self.area = 0.0
+
+        return self.area
 
 
 class Spring:
