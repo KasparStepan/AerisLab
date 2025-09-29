@@ -53,6 +53,7 @@ class World:
 
         # 2) apply per-body & global & interaction forces
         for b in self.bodies:
+            b.clear_forces
             for fb in b.per_body_forces:
                 fb.apply(b, self.t)
         for fg in self.global_forces:

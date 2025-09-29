@@ -89,31 +89,32 @@ class ParachuteDrag(Drag):
         
         # Check activation conditions
         if v_mag >= abs(self.activation_velocity) and self.activation_status == False:
+            #print(f"Parachute activated at t={tval:.2f}s, v={v_mag:.2f}m/s")
             self.activation_status = True
             self.activation_time = tval
 
         # Apply drag only if activated
-        if self.activation_status:
+        if self.activation_status == True:
+            #print(self.activation_status)
             Cd = self._value(self.Cd, tval, body)
             A = self.eval_area(tval, body)
             speed = v_mag
             if speed > 0.0: 
                 f = -0.5 * self.rho * Cd * A * speed * v
                 body.apply_force(f)
+                #print(f"Parachute drag force at t={tval:.2f}s: F={f},A={self.eval_area(tval, body):.2f}m^2")
         else:
             f = np.zeros(3)
             body.apply_force(f)
+            #print(f"Parachute drag force at t={tval:.2f}s: F={f},A={self.area:.2f}m^2")
+            
 
 
     def eval_area(self,tval,body) -> float:
         tval = 0.0 if tval is None else float(tval)
-
-        if self.activation_status:  
-            self.area =  min(15.0, 0.5 + 1.5 * (tval - self.activation_time))
-        else:
-            self.area = 0.0
-
-        return self.area
+        base_area =  min(self.area, 0.5 + 1.5 * (tval - self.activation_time))
+                   
+        return base_area
 
 
 class Spring:

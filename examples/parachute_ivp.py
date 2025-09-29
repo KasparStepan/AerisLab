@@ -55,7 +55,7 @@ def main():
     ivp = HybridIVPSolver(method="Radau", rtol=1e-6, atol=1e-8, alpha=5.0, beta=2.0, max_step=1.0)
 
     # Integrate to t_end; terminal event stops at touchdown
-    t_end = 200.0
+    t_end = 15.0
     sol = world.integrate_to(ivp, t_end=t_end)
 
     # Report

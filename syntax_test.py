@@ -18,3 +18,6 @@ direction = position_2 - position_1
 distance = np.linalg.norm(direction)
 print(f"Direction from {position_1} to {position_2} is {direction}")
 print(f"Distance between {position_1} and {position_2} is {distance}")
+
+
+print(np.zeros(3))
