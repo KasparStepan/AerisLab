@@ -71,12 +71,13 @@ class ParachuteDrag(Drag):
         area: float | Callable[[float, RigidBody6DOF], float] = 1.0,
         mode: str = "quadratic",
         activation_time: float = 0.0,
-        activation_altitude: float = 100.0,
-        activation_velocity: float = -50.0,
+        activation_altitude: float | None = None,
+        activation_velocity: float = 50.0,
     ) -> None:
         super().__init__(rho=rho, Cd=Cd, area=area, mode=mode)
         self.activation_time = activation_time
-        self.activation_altitude = activation_altitude
+        self.activation_altitude = (None if activation_altitude is None
+                                else float(activation_altitude))
         self.activation_velocity = activation_velocity
         self.activation_status = False
 
