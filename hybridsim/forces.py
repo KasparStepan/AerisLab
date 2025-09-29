@@ -83,9 +83,14 @@ class ParachuteDrag(Drag):
         tval = 0.0 if t is None else float(t)
         v = body.v
         v_mag = np.linalg.norm(v)
+        if (v_mag < abs(self.activation_velocity)):
+            Cd = self._value(self.Cd, tval, body)
+            A = self._value(self.area, tval, body)
+            speed = np.linalg.norm(v)
+            if speed > 0.0:
+                f = -0.5 * self.rho * Cd * A * speed * v
+                body.apply_force(f)
 
-        
-        super().apply(body, t)
 
 class Spring:
     """
