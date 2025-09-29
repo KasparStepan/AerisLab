@@ -60,6 +60,21 @@ class Drag:
         else:
             raise ValueError("Drag.mode must be 'quadratic' or 'linear'.")
         
+class ParachuteDrag(Drag):
+    """
+    Specialized Drag for parachutes with time-dependent area.
+    """
+    def __init__(
+        self,
+        rho: float = 1.225,
+        Cd: float | Callable[[float, RigidBody6DOF], float] = 1.5,
+        area_schedule: Callable[[float, RigidBody6DOF], float] = lambda t, body: 1.0,
+        mode: str = "quadratic",
+    ) -> None:
+        super().__init__(rho=rho, Cd=Cd, area=area_schedule, mode=mode)
+
+    def apply(self, body: RigidBody6DOF, t: Optional[float] = None) -> None:
+        super().apply(body, t)
 
 class Spring:
     """
