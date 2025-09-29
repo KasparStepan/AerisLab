@@ -72,7 +72,7 @@ class ParachuteDrag(Drag):
         mode: str = "quadratic",
         activation_time: float = 0.0,
         activation_altitude: float = 100.0,
-        activation_velocity: float = -5.0,
+        activation_velocity: float = -50.0,
     ) -> None:
         super().__init__(rho=rho, Cd=Cd, area=area_schedule, mode=mode)
         self.activation_time = activation_time
