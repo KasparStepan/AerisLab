@@ -7,12 +7,12 @@ import time
 
 # Robust imports for module/script execution
 try:
-    from ..modeling import (
+    from ..AerisLab import (
         World, RigidBody6DOF, Gravity, Drag, ParachuteDrag, RigidTetherJoint,
         HybridSolver, CSVLogger
     )
 except ImportError:
-    from modeling import (
+    from AerisLab import (
         World, RigidBody6DOF, Gravity, Drag, ParachuteDrag, RigidTetherJoint,
         HybridSolver, CSVLogger
     )

@@ -3,7 +3,7 @@ import pytest
 
 @pytest.mark.skipif(__import__("importlib").util.find_spec("scipy") is None, reason="SciPy required")
 def test_free_fall_matches_kinematics():
-    from modeling import World, RigidBody6DOF, Gravity, HybridIVPSolver
+    from AerisLab import World, RigidBody6DOF, Gravity, HybridIVPSolver
     I = np.eye(3)
     z0 = 20.0
     w = World(ground_z=-1000.0, payload_index=0)

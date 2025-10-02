@@ -81,6 +81,9 @@ class ParachuteDrag(Drag):
         self.activation_velocity = activation_velocity
         self.activation_status = False
 
+    def _smoothtransition(self, s: float, k: float = 40.0) -> float:
+        return 0.5*(1.0 + np.tanh(k*s))
+
     def apply(self, body: RigidBody6DOF, t: Optional[float] = None) -> None:
         
         tval = 0.0 if t is None else float(t)
@@ -112,7 +115,7 @@ class ParachuteDrag(Drag):
 
     def eval_area(self,tval,body) -> float:
         tval = 0.0 if tval is None else float(tval)
-        base_area =  min(self.area, 0.5 + 1.5 * (tval - self.activation_time))
+        base_area =  min(self.area, 1.5 * (tval - self.activation_time))
                    
         return base_area
 

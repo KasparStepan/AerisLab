@@ -1,6 +1,6 @@
 import numpy as np
 import pytest
-from modeling import RigidBody6DOF, Gravity, Drag
+from AerisLab import RigidBody6DOF, Gravity, Drag
 
 def test_gravity_force_direction():
     b = RigidBody6DOF("b", 2.0, np.eye(3), np.zeros(3), np.array([1,0,0,0]))
