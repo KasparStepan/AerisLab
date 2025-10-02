@@ -42,8 +42,8 @@ def build_world() -> World:
     # Global gravity
     w.add_global_force(Gravity(np.array([0.0, 0.0, -9.81])))
     # Per-body forces
-    payload.per_body_forces.append(Drag(rho=1.225, Cd=1.0, area=0.3, mode="quadratic"))
-    canopy.per_body_forces.append(ParachuteDrag(rho=1.225, Cd=1.5, area=5, activation_velocity=25))
+    payload.per_body_forces.append(Drag(rho=1.225, Cd=0.15, area=0.3, mode="quadratic"))
+    canopy.per_body_forces.append(ParachuteDrag(rho=1.225, Cd=1.5, area=5, activation_velocity=30))
 
     # Rigid tether (fixed distance between attachment points)
     tether = RigidTetherJoint(pidx, cidx, attach_i_local=[0, 0, 0], attach_j_local=[0, 0, 0], length=5.0)

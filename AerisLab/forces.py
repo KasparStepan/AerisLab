@@ -73,6 +73,9 @@ class ParachuteDrag(Drag):
         activation_time: float = 0.0,
         activation_altitude: float | None = None,
         activation_velocity: float = 50.0,
+        # Variables used for smooth transition for IVP solver
+        gate_sharpness: float = 40.0,
+        area_collapsed:float = 1e-3,
     ) -> None:
         super().__init__(rho=rho, Cd=Cd, area=area, mode=mode)
         self.activation_time = activation_time
@@ -80,12 +83,10 @@ class ParachuteDrag(Drag):
                                 else float(activation_altitude))
         self.activation_velocity = activation_velocity
         self.activation_status = False
-
-    def _smoothtransition(self, s: float, k: float = 40.0) -> float:
-        return 0.5*(1.0 + np.tanh(k*s))
-
-    def apply(self, body: RigidBody6DOF, t: Optional[float] = None) -> None:
+        self.gate_sharpness = float(gate_sharpness)
+        self.area_collapsed = float(area_collapsed)
         
+    def apply(self, body: RigidBody6DOF, t: Optional[float] = None) -> None:    
         tval = 0.0 if t is None else float(t)
         v = body.v
         v_mag = np.linalg.norm(v)
@@ -110,14 +111,15 @@ class ParachuteDrag(Drag):
             f = np.zeros(3)
             body.apply_force(f)
             #print(f"Parachute drag force at t={tval:.2f}s: F={f},A={self.area:.2f}m^2")
-            
+           
 
 
-    def eval_area(self,tval,body) -> float:
-        tval = 0.0 if tval is None else float(tval)
-        base_area =  min(self.area, 1.5 * (tval - self.activation_time))
-                   
-        return base_area
+    def eval_area(self, tval, body) -> float:
+        t = 0.0 if tval is None else float(tval)
+        k = getattr(self, "gate_sharpness", 40.0)      # higher k => sharper (but still smooth) transition
+        A0 = getattr(self, "area_collapsed", 0.0)      # tiny baseline if you use it; else 0
+        g = 0.5 * (1.0 + np.tanh(k * (t - self.activation_time)))  # smooth gate in (0,1)
+        return A0 + g * (float(self.area) - A0)
 
 
 class Spring:
