@@ -141,7 +141,6 @@ class World:
                 csv_path, name,
                 save_path=os.path.join(plots_dir, f"{name}_traj.png"),
                 show=show,
-                magnitude=False
             )
             plot_velocity_and_acceleration(
                 csv_path, name,
