@@ -146,6 +146,7 @@ def plot_velocity_and_acceleration(
     body_name: str,
     save_path: str | None = None,
     show: bool = True,
+    magnitude: bool = True,
 ) -> Figure:
     """
     Plot velocity components & magnitude, and acceleration components & magnitude
@@ -178,7 +179,8 @@ def plot_velocity_and_acceleration(
     axes[0].plot(t, vx, label="v_x", color="#1a73e8")
     axes[0].plot(t, vy, label="v_y", color="#34a853")
     axes[0].plot(t, vz, label="v_z", color="#fbbc05")
-    axes[0].plot(t, speed, label="|v|", color="#ea4335", lw=2.0, alpha=0.8)
+    if magnitude:
+        axes[0].plot(t, speed, label="|v|", color="#ea4335", lw=2.0, alpha=0.8)
     axes[0].set_ylabel("velocity [m/s]")
     axes[0].grid(True, alpha=0.3)
     axes[0].legend(loc="best")
@@ -188,7 +190,8 @@ def plot_velocity_and_acceleration(
     axes[1].plot(t, ax, label="a_x", color="#1a73e8")
     axes[1].plot(t, ay, label="a_y", color="#34a853")
     axes[1].plot(t, az, label="a_z", color="#fbbc05")
-    axes[1].plot(t, amag, label="|a|", color="#ea4335", lw=2.0, alpha=0.8)
+    if magnitude:
+        axes[1].plot(t, amag, label="|a|", color="#ea4335", lw=2.0, alpha=0.8)
     axes[1].set_xlabel("t [s]"); axes[1].set_ylabel("accel [m/s²]")
     axes[1].grid(True, alpha=0.3)
     axes[1].legend(loc="best")
@@ -208,6 +211,7 @@ def plot_forces(
     body_name: str,
     save_path: str | None = None,
     show: bool = True,
+    magnitude: bool = True
 ) -> Figure:
     """
     Plot resultant force components (from logger) and magnitude.
@@ -233,7 +237,8 @@ def plot_forces(
     ax.plot(t, Fx, label="F_x", color="#1a73e8")
     ax.plot(t, Fy, label="F_y", color="#34a853")
     ax.plot(t, Fz, label="F_z", color="#fbbc05")
-    ax.plot(t, Fmag, label="|F|", color="#ea4335", lw=2.0, alpha=0.8)
+    if magnitude:
+        ax.plot(t, Fmag, label="|F|", color="#ea4335", lw=2.0, alpha=0.8)
     ax.set_xlabel("t [s]"); ax.set_ylabel("force [N]")
     ax.grid(True, alpha=0.3)
     ax.legend(loc="best")
