@@ -29,16 +29,16 @@ To prevent drift in the constraint manifold $\mathbf{C}(\mathbf{q}, t) = 0$, the
 
 $$
 \begin{bmatrix}
-\mathbf{M} & \mathbf{J}^T \\
+\mathbf{M} & \mathbf{J}^T \\\\
 \mathbf{J} & \mathbf{0}
 \end{bmatrix}
 \begin{bmatrix}
-\mathbf{a} \\
+\mathbf{a} \\\\
 \boldsymbol{\lambda}
 \end{bmatrix}
 =
 \begin{bmatrix}
-\mathbf{F}_{ext} \\
+\mathbf{F}_{ext} \\\\
 \mathbf{b}_{stab}
 \end{bmatrix}
 $$
