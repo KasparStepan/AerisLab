@@ -11,7 +11,7 @@ def test_free_fall_matches_kinematics():
     w.add_body(b)
     w.add_global_force(Gravity(np.array([0,0,-9.81])))
 
-    ivp = HybridIVPSolver(method="Radau", rtol=1e-8, atol=1e-10)
+    ivp = HybridIVPSolver(method="Radau", rtol=1e-8, atol=1e-10, max_step=np.inf)
     t_end = 1.234
     sol = w.integrate_to(ivp, t_end=t_end)
     z = w.bodies[0].p[2]

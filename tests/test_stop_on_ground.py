@@ -1,4 +1,5 @@
 import numpy as np
+import pytest
 from AerisLab import World, RigidBody6DOF, Gravity, HybridSolver
 
 def test_fixed_step_termination_on_ground():
@@ -18,7 +19,6 @@ def test_fixed_step_termination_on_ground():
     assert abs(w.t_touchdown - t_exact) < 0.05  # linear interpolation helps
 
 def test_ivp_event_halts_at_ground():
-    pytest = __import__("pytest")  # lazy
     scipy = pytest.importorskip("scipy")
 
     from AerisLab import HybridIVPSolver
@@ -29,7 +29,7 @@ def test_ivp_event_halts_at_ground():
     w.add_body(payload)
     w.add_global_force(Gravity(np.array([0,0,-9.81])))
 
-    ivp = HybridIVPSolver(method="Radau", rtol=1e-9, atol=1e-11)
+    ivp = HybridIVPSolver(method="Radau", rtol=1e-9, atol=1e-11, max_step=np.inf)
     sol = w.integrate_to(ivp, t_end=5.0)
     t_exact = (2*5.0/9.81)**0.5
     assert w.t_touchdown is not None

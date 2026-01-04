@@ -92,7 +92,11 @@ class ParachuteDrag(Drag):
         v_mag = np.linalg.norm(v)
         
         # Check activation conditions
-        if v_mag >= abs(self.activation_velocity) and self.activation_status == False:
+        condition_vel = v_mag >= abs(self.activation_velocity)
+        condition_alt = (self.activation_altitude is not None and 
+                         body.p[2] <= self.activation_altitude)
+
+        if (condition_vel or condition_alt) and not self.activation_status:
             #print(f"Parachute activated at t={tval:.2f}s, v={v_mag:.2f}m/s")
             self.activation_status = True
             self.activation_time = tval
@@ -119,7 +123,8 @@ class ParachuteDrag(Drag):
         k = getattr(self, "gate_sharpness", 40.0)      # higher k => sharper (but still smooth) transition
         A0 = getattr(self, "area_collapsed", 0.0)      # tiny baseline if you use it; else 0
         g = 0.5 * (1.0 + np.tanh(k * (t - self.activation_time)))  # smooth gate in (0,1)
-        return A0 + g * (float(self.area) - A0)
+        target_area = self._value(self.area, t, body)
+        return A0 + g * (target_area - A0)
 
 
 class Spring:
