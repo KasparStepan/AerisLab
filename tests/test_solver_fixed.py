@@ -1,5 +1,5 @@
 import numpy as np
-from AerisLab import (
+from aerislab import (
     World, RigidBody6DOF, Gravity, RigidTetherJoint, HybridSolver
 )
 

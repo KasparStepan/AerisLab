@@ -8,7 +8,7 @@ try:
         World, RigidBody6DOF, Gravity, Drag, ParachuteDrag, RigidTetherJoint, HybridIVPSolver, CSVLogger
     )
 except ImportError:
-    from AerisLab import (
+    from aerislab import (
         World, RigidBody6DOF, Gravity, Drag, ParachuteDrag, RigidTetherJoint, HybridIVPSolver, CSVLogger
     )
 

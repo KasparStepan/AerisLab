@@ -12,7 +12,7 @@ try:
         HybridSolver, CSVLogger
     )
 except ImportError:
-    from AerisLab import (
+    from aerislab import (
         World, RigidBody6DOF, Gravity, Drag, ParachuteDrag, RigidTetherJoint,
         HybridSolver, CSVLogger
     )

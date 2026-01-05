@@ -1,6 +1,6 @@
 import numpy as np
 import pytest
-from AerisLab import World, RigidBody6DOF, Gravity, HybridSolver
+from aerislab import World, RigidBody6DOF, Gravity, HybridSolver
 
 def test_fixed_step_termination_on_ground():
     I = np.eye(3)
@@ -21,7 +21,7 @@ def test_fixed_step_termination_on_ground():
 def test_ivp_event_halts_at_ground():
     scipy = pytest.importorskip("scipy")
 
-    from AerisLab import HybridIVPSolver
+    from aerislab import HybridIVPSolver
 
     I = np.eye(3)
     payload = RigidBody6DOF("payload", 1.0, I, np.array([0,0,5.0]), np.array([1,0,0,0]))
