@@ -1,5 +1,3 @@
-"""HybridSim: Minimal modular multibody dynamics with rigid constraints and
-hard termination at ground contact (no contact modeling)."""
 
 from .mathutil import (
     quat_normalize, quat_mul, quat_to_rotmat, skew, quat_derivative
