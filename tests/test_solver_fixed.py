@@ -1,7 +1,9 @@
 import numpy as np
-from aerislab import (
-    World, RigidBody6DOF, Gravity, RigidTetherJoint, HybridSolver
-)
+from aerislab.core import World, HybridSolver
+from aerislab.dynamics.body import RigidBody6DOF
+from aerislab.dynamics.forces import Gravity
+from aerislab.dynamics.joints import RigidTetherJoint
+
 
 def test_velocity_level_satisfaction_after_step():
     # Two identical bodies connected by rigid tether

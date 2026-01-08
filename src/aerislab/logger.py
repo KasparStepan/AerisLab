@@ -3,7 +3,7 @@ import csv
 import os
 from typing import Optional
 import numpy as np
-from .body import RigidBody6DOF
+from aerislab.dynamics.body import RigidBody6DOF
 
 Array = np.ndarray
 

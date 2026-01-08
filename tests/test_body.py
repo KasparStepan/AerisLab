@@ -1,6 +1,6 @@
 import numpy as np
 import pytest
-from aerislab.body import RigidBody6DOF
+from aerislab.dynamics.body import RigidBody6DOF
 
 @pytest.fixture
 def body_default():

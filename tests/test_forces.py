@@ -1,6 +1,6 @@
 import pytest
 import numpy as np
-from aerislab.forces import Gravity, Drag, ParachuteDrag, Spring
+from aerislab.dynamics.forces import Gravity, Drag, ParachuteDrag, Spring
 
 # Mock RigidBody6DOF for testing purposes
 class MockRigidBody:

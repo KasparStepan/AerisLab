@@ -1,8 +1,8 @@
 from __future__ import annotations
 import numpy as np
 from typing import List, Tuple
-from .body import RigidBody6DOF, quat_derivative, quat_normalize
-from .constraints import Constraint
+from aerislab.dynamics.body import RigidBody6DOF, quat_derivative, quat_normalize
+from aerislab.dynamics.constraints import Constraint
 
 Array = np.ndarray
 

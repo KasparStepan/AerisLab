@@ -1,6 +1,8 @@
 import numpy as np
 import pytest
-from aerislab import World, RigidBody6DOF, Gravity, HybridSolver
+from aerislab.core import World, HybridSolver
+from aerislab.dynamics.body import RigidBody6DOF
+from aerislab.dynamics.forces import Gravity
 
 def test_fixed_step_termination_on_ground():
     I = np.eye(3)

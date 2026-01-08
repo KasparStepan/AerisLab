@@ -1,5 +1,6 @@
 import numpy as np
-from aerislab import RigidBody6DOF, DistanceConstraint, PointWeldConstraint
+from aerislab.dynamics.body import RigidBody6DOF
+from aerislab.dynamics.constraints import DistanceConstraint, PointWeldConstraint
 
 def _two_bodies():
     I = np.eye(3)

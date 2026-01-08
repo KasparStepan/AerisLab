@@ -1,9 +1,9 @@
 from __future__ import annotations
 import numpy as np
 from typing import Callable, List, Optional
-from .body import RigidBody6DOF
-from .forces import Gravity, Drag, Spring
-from .constraints import Constraint
+from aerislab.dynamics.body import RigidBody6DOF
+from aerislab.dynamics.forces import Gravity, Drag, Spring
+from aerislab.dynamics.constraints import Constraint
 from .solver import HybridSolver, HybridIVPSolver
 
 class World:

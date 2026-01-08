@@ -1,5 +1,5 @@
 import os
-from aerislab.plotting import (
+from aerislab.visualization.plotting import (
     plot_trajectory_3d,
     plot_velocity_and_acceleration,
     plot_forces,
