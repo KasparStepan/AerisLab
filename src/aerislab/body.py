@@ -102,6 +102,17 @@ class RigidBody6DOF:
         M[3:6, 3:6] = self.inertia_world()
         return M
 
+    def inv_mass_matrix_world(self) -> Array:
+        """
+        Return block-diagonal inverse generalized mass:
+        W_i = diag(1/m I3, I_world_inv) with shape (6,6).
+        """
+        W = np.zeros((6, 6), dtype=np.float64)
+        W[0:3, 0:3] = self.inv_mass * np.eye(3)
+        R = self.rotation_world()
+        W[3:6, 3:6] = R @ self.I_body_inv @ R.T
+        return W
+
     # --- force application ---
     def apply_force(self, f: Array, point_world: Array | None = None) -> None:
         """

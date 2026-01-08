@@ -14,11 +14,12 @@ def assemble_system(
     beta: float = 0.0,
 ) -> Tuple[Array, Array, Array, Array, Array]:
     """
-    Assemble KKT blocks for current state:
-      [ M  J^T ] [a] = [F]
-      [ J   0  ] [λ]   [rhs]
+    Assemble matrices for Schur Complement solve:
+    Returns (Minv, J, F, rhs, v)
 
-    Returns (M, J, F, rhs, v)
+    Minv: Inverse Mass Matrix (6N, 6N)
+    J:    Constraint Jacobian (m, 6N)
+    F:    Generalized Forces (6N,)
 
     Velocity-level stabilization:
       rhs = -Jv - α C - β Ċ, with Ċ = Jv  ⇒ rhs = -(1+β) Jv - α C
@@ -26,13 +27,13 @@ def assemble_system(
     nb = len(bodies)
     nv = 6 * nb
 
-    # Mass, forces, velocities
-    M = np.zeros((nv, nv), dtype=np.float64)
+    # Inverse Mass, forces, velocities
+    Minv = np.zeros((nv, nv), dtype=np.float64)
     F = np.zeros(nv, dtype=np.float64)
     v = np.zeros(nv, dtype=np.float64)
     for i, b in enumerate(bodies):
-        Mi = b.mass_matrix_world()
-        M[6*i:6*i+6, 6*i:6*i+6] = Mi
+        Wi = b.inv_mass_matrix_world()
+        Minv[6*i:6*i+6, 6*i:6*i+6] = Wi
         F[6*i:6*i+6] = b.generalized_force()
         v[6*i:6*i+3] = b.v
         v[6*i+3:6*i+6] = b.w
@@ -61,31 +62,43 @@ def assemble_system(
         rhs[row:row+r] = -(1.0 + beta) * Jv - alpha * C
         row += r
 
-    return M, J, F, rhs, v
+    return Minv, J, F, rhs, v
 
 
-def solve_kkt(M: Array, J: Array, F: Array, rhs: Array) -> Tuple[Array, Array]:
+def solve_kkt(Minv: Array, J: Array, F: Array, rhs: Array) -> Tuple[Array, Array]:
     """
-    Solve the KKT system for accelerations a and multipliers λ:
+    Solve for accelerations a and multipliers λ using Schur Complement.
 
-      [ M  J^T ] [a] = [F]
-      [ J   0  ] [λ]   [rhs]
+    System:
+      1) M a - J^T λ = F  => a = Minv (F + J^T λ)
+      2) J a = rhs
+
+    Substitute (1) into (2):
+      J (Minv F + Minv J^T λ) = rhs
+      (J Minv J^T) λ = rhs - J Minv F
     """
-    nv = M.shape[0]
+    # 1. Compute unconstrained accelerations (a_0)
+    a0 = Minv @ F
+
     m = J.shape[0]
+    if m == 0:
+        return a0, np.zeros(0)
 
-    K = np.zeros((nv + m, nv + m), dtype=np.float64)
-    b = np.zeros(nv + m, dtype=np.float64)
+    # 2. Form the effective mass of constraints (A)
+    # A = J @ Minv @ J.T
+    # Note: For very large systems, we would use sparse matrices here.
+    A = J @ (Minv @ J.T)
 
-    K[0:nv, 0:nv] = M
-    K[0:nv, nv:nv+m] = J.T
-    K[nv:nv+m, 0:nv] = J
-    b[0:nv] = F
-    b[nv:nv+m] = rhs
+    # 3. Form RHS for lambda
+    b = rhs - J @ a0
 
-    sol = np.linalg.solve(K, b)
-    a = sol[0:nv]
-    lam = sol[nv:nv+m]
+    # 4. Solve for lambda
+    lam = np.linalg.solve(A, b)
+
+    # 5. Recover total acceleration
+    # a = a0 + Minv @ J.T @ lam
+    a = a0 + Minv @ (J.T @ lam)
+
     return a, lam
 
 
@@ -96,8 +109,8 @@ class HybridSolver:
         self.beta = float(beta)
 
     def step(self, bodies: List[RigidBody6DOF], constraints: List[Constraint], dt: float) -> np.ndarray:
-        M, J, F, rhs, _ = assemble_system(bodies, constraints, self.alpha, self.beta)
-        a, _ = solve_kkt(M, J, F, rhs)
+        Minv, J, F, rhs, _ = assemble_system(bodies, constraints, self.alpha, self.beta)
+        a, _ = solve_kkt(Minv, J, F, rhs)
 
         for i, b in enumerate(bodies):
             a_lin = a[6*i:6*i+3]
@@ -160,8 +173,8 @@ class HybridIVPSolver:
                 fpair.apply_pair(t)
 
             # Assemble and solve KKT
-            M, J, F, rhs_v, _ = assemble_system(bodies, constraints, self.alpha, self.beta)
-            a, _ = solve_kkt(M, J, F, rhs_v)
+            Minv, J, F, rhs_v, _ = assemble_system(bodies, constraints, self.alpha, self.beta)
+            a, _ = solve_kkt(Minv, J, F, rhs_v)
 
             # Compose ydot = [v, qdot, a_lin, a_ang]
             ydot = np.zeros_like(y)
