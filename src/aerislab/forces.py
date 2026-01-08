@@ -1,8 +1,9 @@
 from __future__ import annotations
 import numpy as np
 from typing import Callable, Optional, Protocol
-from .mathutil import Array
 from .body import RigidBody6DOF
+
+Array = np.ndarray
 
 class Force(Protocol):
     def apply(self, body: RigidBody6DOF, t: Optional[float] = None) -> None: ...

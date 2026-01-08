@@ -1,7 +1,7 @@
 from __future__ import annotations
 import numpy as np
 from typing import List, Tuple
-from .body import RigidBody6DOF
+from .body import RigidBody6DOF, quat_derivative, quat_normalize
 from .constraints import Constraint
 
 Array = np.ndarray
@@ -170,7 +170,6 @@ class HybridIVPSolver:
                 a_ang = a[6*i+3:6*i+6]
                 off = 13*i
                 ydot[off:off+3] = b.v
-                from .mathutil import quat_derivative, quat_normalize
                 b.q[:] = quat_normalize(b.q)
                 ydot[off+3:off+7] = quat_derivative(b.q, b.w)
                 ydot[off+7:off+10] = a_lin

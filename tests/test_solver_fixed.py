@@ -6,8 +6,8 @@ from aerislab import (
 def test_velocity_level_satisfaction_after_step():
     # Two identical bodies connected by rigid tether
     I = np.eye(3)
-    a = RigidBody6DOF("a", 1.0, I, np.array([0,0,1], float), np.array([1,0,0,0]))
-    b = RigidBody6DOF("b", 1.0, I, np.array([1,0,1], float), np.array([1,0,0,0]))
+    a = RigidBody6DOF("a", 1.0, I, np.array([0,0,1], float), np.array([0,0,0,1]))
+    b = RigidBody6DOF("b", 1.0, I, np.array([1,0,1], float), np.array([0,0,0,1]))
     w = World(ground_z=0.0, payload_index=0)
     ia = w.add_body(a)
     ib = w.add_body(b)

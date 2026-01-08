@@ -4,7 +4,8 @@ import os
 from typing import Optional
 import numpy as np
 from .body import RigidBody6DOF
-from .mathutil import Array
+
+Array = np.ndarray
 
 class CSVLogger:
     """
@@ -24,7 +25,7 @@ class CSVLogger:
         for b in world.bodies:
             base = f"{b.name}"
             hdr += [f"{base}.p_x", f"{base}.p_y", f"{base}.p_z",
-                    f"{base}.q_w", f"{base}.q_x", f"{base}.q_y", f"{base}.q_z",
+                    f"{base}.q_x", f"{base}.q_y", f"{base}.q_z", f"{base}.q_w",
                     f"{base}.v_x", f"{base}.v_y", f"{base}.v_z",
                     f"{base}.w_x", f"{base}.w_y", f"{base}.w_z",
                     f"{base}.F_x", f"{base}.F_y", f"{base}.F_z",

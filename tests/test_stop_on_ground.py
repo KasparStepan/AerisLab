@@ -4,7 +4,7 @@ from aerislab import World, RigidBody6DOF, Gravity, HybridSolver
 
 def test_fixed_step_termination_on_ground():
     I = np.eye(3)
-    payload = RigidBody6DOF("payload", 1.0, I, np.array([0,0,10.0]), np.array([1,0,0,0]))
+    payload = RigidBody6DOF("payload", 1.0, I, np.array([0,0,10.0]), np.array([0,0,0,1]))
     w = World(ground_z=0.0, payload_index=0)
     w.add_body(payload)
     w.add_global_force(Gravity(np.array([0,0,-9.81])))
@@ -24,7 +24,7 @@ def test_ivp_event_halts_at_ground():
     from aerislab import HybridIVPSolver
 
     I = np.eye(3)
-    payload = RigidBody6DOF("payload", 1.0, I, np.array([0,0,5.0]), np.array([1,0,0,0]))
+    payload = RigidBody6DOF("payload", 1.0, I, np.array([0,0,5.0]), np.array([0,0,0,1]))
     w = World(ground_z=0.0, payload_index=0)
     w.add_body(payload)
     w.add_global_force(Gravity(np.array([0,0,-9.81])))

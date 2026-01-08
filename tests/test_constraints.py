@@ -3,8 +3,8 @@ from aerislab import RigidBody6DOF, DistanceConstraint, PointWeldConstraint
 
 def _two_bodies():
     I = np.eye(3)
-    a = RigidBody6DOF("a", 1.0, I, np.array([0,0,0], float), np.array([1,0,0,0]))
-    b = RigidBody6DOF("b", 1.0, I, np.array([1,0,0], float), np.array([1,0,0,0]))
+    a = RigidBody6DOF("a", 1.0, I, np.array([0,0,0], float), np.array([0,0,0,1]))
+    b = RigidBody6DOF("b", 1.0, I, np.array([1,0,0], float), np.array([0,0,0,1]))
     return [a, b]
 
 def test_distance_constraint_eval_and_J():

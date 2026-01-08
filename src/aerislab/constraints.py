@@ -1,10 +1,21 @@
 from __future__ import annotations
 import numpy as np
 from typing import List, Tuple
-from .mathutil import skew
 from .body import RigidBody6DOF
 
 Array = np.ndarray
+
+def skew(v: Array) -> Array:
+    """
+    Skew-symmetric matrix S(v) s.t. S(v) @ w = v × w.
+    v: (3,) -> (3,3)
+    """
+    vx, vy, vz = v
+    return np.array([
+        [0.0, -vz,  vy],
+        [vz,  0.0, -vx],
+        [-vy, vx,  0.0]
+    ], dtype=np.float64)
 
 class Constraint:
     """Abstract base for constraints used in KKT solve."""

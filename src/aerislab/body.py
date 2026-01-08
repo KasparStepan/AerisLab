@@ -1,8 +1,30 @@
 from __future__ import annotations
 import numpy as np
-from .mathutil import quat_to_rotmat, quat_normalize, quat_derivative
+from scipy.spatial.transform import Rotation as ScR
 
 Array = np.ndarray
+
+def quat_normalize(q: Array) -> Array:
+    """Return unit quaternion (float64). q shape: (4,)."""
+    q = np.asarray(q, dtype=np.float64)
+    n = np.linalg.norm(q)
+    if n == 0.0:
+        return np.array([0.0, 0.0, 0.0, 1.0], dtype=np.float64)
+    return q / n
+
+def quat_derivative(q: Array, omega: Array) -> Array:
+    """
+    qdot = 0.5 * q ⊗ [ω, 0] (scalar-last)
+    q: (4,), ω: (3,) -> (4,)
+    """
+    qx, qy, qz, qw = q
+    ox, oy, oz = omega
+    return 0.5 * np.array([
+        qw*ox + qy*oz - qz*oy,
+        qw*oy - qx*oz + qz*ox,
+        qw*oz + qx*oy - qy*ox,
+        -qx*ox - qy*oy - qz*oz
+    ], dtype=np.float64)
 
 class RigidBody6DOF:
     """
@@ -10,7 +32,7 @@ class RigidBody6DOF:
 
     Frames & state:
     - p (3,): world position of body origin [m]
-    - q (4,): unit quaternion body->world (scalar-first) [-]
+    - q (4,): unit quaternion body->world (scalar-last [x,y,z,w]) [-]
     - v (3,): world linear velocity [m/s]
     - w (3,): world angular velocity [rad/s]
 
@@ -64,7 +86,7 @@ class RigidBody6DOF:
         self.tau.fill(0.0)
 
     def rotation_world(self) -> Array:
-        return quat_to_rotmat(self.q)
+        return ScR.from_quat(self.q).as_matrix()
 
     def inertia_world(self) -> Array:
         R = self.rotation_world()

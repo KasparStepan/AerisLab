@@ -7,7 +7,7 @@ def test_free_fall_matches_kinematics():
     I = np.eye(3)
     z0 = 20.0
     w = World(ground_z=-1000.0, payload_index=0)
-    b = RigidBody6DOF("b", 1.0, I, np.array([0,0,z0]), np.array([1,0,0,0]))
+    b = RigidBody6DOF("b", 1.0, I, np.array([0,0,z0]), np.array([0,0,0,1]))
     w.add_body(b)
     w.add_global_force(Gravity(np.array([0,0,-9.81])))
 

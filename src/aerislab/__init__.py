@@ -1,7 +1,4 @@
 
-from .mathutil import (
-    quat_normalize, quat_mul, quat_to_rotmat, skew, quat_derivative
-)
 from .body import RigidBody6DOF
 from .forces import Gravity, Drag, Spring, ParachuteDrag
 from .constraints import DistanceConstraint, PointWeldConstraint
@@ -25,9 +22,4 @@ __all__ = [
     "HybridIVPSolver",
     "World",
     "CSVLogger",
-    "quat_normalize",
-    "quat_mul",
-    "quat_to_rotmat",
-    "quat_derivative",
-    "skew",
 ]
