@@ -5,6 +5,7 @@ from aerislab.dynamics.body import RigidBody6DOF
 from aerislab.dynamics.forces import Gravity, Drag, Spring
 from aerislab.dynamics.constraints import Constraint
 from .solver import HybridSolver, HybridIVPSolver
+from aerislab.logger import CSVLogger
 
 class World:
     """
@@ -13,7 +14,7 @@ class World:
     Termination: stop when payload.z <= ground_z (no contact). For fixed-step,
     we detect crossing and linearly interpolate touchdown time t*.
     """
-    def __init__(self, ground_z: float = 0.0, payload_index: int = 0) -> None:
+    def __init__(self, ground_z: float = 0.0, payload_index: int = 0, log_enabled: bool = True, log_file: str = "simulation.csv") -> None:
         self.bodies: List[RigidBody6DOF] = []
         self.global_forces: List = []
         self.interaction_forces: List[Spring] = []
@@ -24,6 +25,9 @@ class World:
         self.t_touchdown: Optional[float] = None
         self.logger = None
         self.termination_callback: Optional[Callable[['World'], bool]] = None
+        
+        if log_enabled:
+            self.logger = CSVLogger(log_file)
 
     # configuration
     def set_logger(self, logger) -> None:
@@ -53,7 +57,6 @@ class World:
 
         # 2) apply per-body & global & interaction forces
         for b in self.bodies:
-            b.clear_forces
             for fb in b.per_body_forces:
                 fb.apply(b, self.t)
         for fg in self.global_forces:
@@ -93,9 +96,18 @@ class World:
 
     def run(self, solver: HybridSolver, duration: float, dt: float) -> None:
         t_end = self.t + float(duration)
-        while self.t < t_end:
-            if self.step(solver, dt):
-                break
+        
+        # Log initial state
+        if self.logger is not None:
+            self.logger.log(self)
+            
+        try:
+            while self.t < t_end:
+                if self.step(solver, dt):
+                    break
+        finally:
+            if self.logger:
+                self.logger.flush()
 
     # --- Variable-step/API wrapper ---
     def integrate_to(self, solver: HybridIVPSolver, t_end: float):

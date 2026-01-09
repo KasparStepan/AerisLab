@@ -2,26 +2,25 @@
 import numpy as np
 import time
 import os
+import sys
+
 # Robust imports for module/script execution
-try:
-    from ..AerisLab import (
-        World, RigidBody6DOF, Gravity, Drag, ParachuteDrag, RigidTetherJoint, HybridIVPSolver, CSVLogger
-    )
-except ImportError:
-    from aerislab import (
-        World, RigidBody6DOF, Gravity, Drag, ParachuteDrag, RigidTetherJoint, HybridIVPSolver, CSVLogger
-    )
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "../src")))
+
+from aerislab.core import World, HybridIVPSolver
+from aerislab.dynamics.body import RigidBody6DOF
+from aerislab.dynamics.forces import Gravity, Drag, ParachuteDrag
+from aerislab.dynamics.joints import RigidTetherJoint
+from aerislab.logger import CSVLogger
 
 def build_world() -> World:
-    w = World(ground_z=0.0, payload_index=0)
+    w = World(ground_z=0.0, payload_index=0, log_enabled=False)
 
     I_sphere = (2/5) * 10.0 * 0.2**2 * np.eye(3)
-    payload = RigidBody6DOF("payload", mass=10.0, inertia_tensor_body=I_sphere,
-                            position=np.array([0.0, 0.0, 200.0]),
-                            orientation=np.array([1.0, 0.0, 0.0, 0.0]))
-    canopy  = RigidBody6DOF("canopy", mass=2.0, inertia_tensor_body=0.1*np.eye(3),
-                            position=np.array([0.0, 0.0, 205.0]),
-                            orientation=np.array([1.0, 0.0, 0.0, 0.0]))
+    payload = RigidBody6DOF("payload", 10.0, I_sphere, np.array([0.0, 0.0, 200.0]),
+                            np.array([0.0, 0.0, 0.0, 1.0]))
+    canopy  = RigidBody6DOF("canopy", 2.0, 0.1*np.eye(3), np.array([0.0, 0.0, 205.0]),
+                            np.array([0.0, 0.0, 0.0, 1.0]))
 
     pidx = w.add_body(payload)
     cidx = w.add_body(canopy)
@@ -34,7 +33,7 @@ def build_world() -> World:
     canopy.per_body_forces.append(ParachuteDrag(rho=1.225, Cd=1.5, area=5, activation_velocity=25))
 
     # Rigid tether (distance constraint)
-    tether = RigidTetherJoint(pidx, cidx, [0,0,0], [0,0,0], length=5.0)
+    tether = RigidTetherJoint(pidx, cidx, [0, 0, 0], [0, 0, 0], length=5.0)
     w.add_constraint(tether.attach(w.bodies))
     return w
 
@@ -43,8 +42,12 @@ def main():
     world = build_world()
 
     # CSV logger
-    os.makedirs("logs", exist_ok=True)
-    csv_path = os.path.join("logs", "parachute_ivp.csv")
+    media_dir = os.path.join(os.path.dirname(__file__), "media")
+    logs_dir = os.path.join(media_dir, "logs")
+    plots_dir = os.path.join(media_dir, "plots_ivp")
+
+    os.makedirs(logs_dir, exist_ok=True)
+    csv_path = os.path.join(logs_dir, "parachute_ivp.csv")
     world.set_logger(CSVLogger(csv_path))
 
     # Diagnostics
@@ -66,9 +69,9 @@ def main():
     print(f"World time t={world.t:.6f}s, touchdown={world.t_touchdown}")
 
     # One-liner plots from CSV
-    os.makedirs("plots_ivp", exist_ok=True)
-    world.save_plots(csv_path, bodies=["payload", "canopy"], plots_dir="plots_ivp", show=False)
-    print(f"CSV: {csv_path}\nPlots saved under: plots_ivp/")
+    os.makedirs(plots_dir, exist_ok=True)
+    world.save_plots(csv_path, bodies=["payload", "canopy"], plots_dir=plots_dir, show=False)
+    print(f"CSV: {csv_path}\nPlots saved under: {plots_dir}")
 
 if __name__ == "__main__":
     start = time.time()
