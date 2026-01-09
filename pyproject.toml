@@ -5,53 +5,90 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "aerislab"
 version = "0.1.0"
-description = "PhD Research Project: AerisLab"
+description = "High-fidelity physics engine for aerospace engineering simulations"
 readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "MIT" }
 authors = [
-    { name = "Kaspar", email = "kaspar@example.com" }
+    { name = "Štěpán Kaspar", email = "kaspar@example.com" }
 ]
-keywords = ["research", "science", "phd"]
+keywords = ["aerospace", "simulation", "physics", "rigid-body", "dynamics", "parachute"]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Science/Research",
+    "Topic :: Scientific/Engineering :: Physics",
     "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
     "Operating System :: OS Independent",
 ]
 dependencies = [
-    "numpy",
-    "pandas",
-    "scipy",
-    "matplotlib",
-    # Add your specific project dependencies here
+    "numpy>=1.21",
+    "pandas>=1.3",
+    "scipy>=1.8",
+    "matplotlib>=3.5",
 ]
 
 [project.optional-dependencies]
 dev = [
-    "pytest",
-    "ruff",  # Fast linter and formatter replacing black/isort
-    "mypy",
+    "pytest>=7.0",
+    "pytest-cov>=3.0",
+    "ruff>=0.1.0",
+    "mypy>=1.0",
+    "types-numpy",
 ]
 notebooks = [
-    "jupyterlab",
-    "ipykernel",
+    "jupyterlab>=3.0",
+    "ipykernel>=6.0",
 ]
 
 [project.urls]
-Repository = "https://github.com/kaspar/aerislab"
+Repository = "https://github.com/KasparStepan/aerislab"
+Documentation = "https://github.com/KasparStepan/aerislab/tree/main/docs"
+Issues = "https://github.com/KasparStepan/aerislab/issues"
 
 # --- Tool Configurations ---
 
 [tool.setuptools.packages.find]
-where = ["."]  # Assumes source code is in the root or a src/ directory
-exclude = ["tests*", "notebooks*"]
+where = ["src"]
+exclude = ["tests*", "examples*"]
 
 [tool.pytest.ini_options]
-minversion = "6.0"
-addopts = "-ra -q"
+minversion = "7.0"
+addopts = "-ra -q --strict-markers"
 testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
 
 [tool.ruff]
-line-length = 88
+line-length = 100
 target-version = "py310"
+select = [
+    "E",   # pycodestyle errors
+    "W",   # pycodestyle warnings
+    "F",   # pyflakes
+    "I",   # isort
+    "N",   # pep8-naming
+    "UP",  # pyupgrade
+    "B",   # flake8-bugbear
+    "C4",  # flake8-comprehensions
+    "SIM", # flake8-simplify
+]
+ignore = [
+    "E501",  # line too long (handled by formatter)
+    "B008",  # function calls in argument defaults
+    "B905",  # zip without explicit strict parameter
+]
+
+[tool.ruff.per-file-ignores]
+"__init__.py" = ["F401"]  # Allow unused imports in __init__.py
+"tests/*" = ["S101"]      # Allow assert in tests
+
+[tool.mypy]
+python_version = "3.10"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = false  # Set to true for stricter checking
+ignore_missing_imports = true

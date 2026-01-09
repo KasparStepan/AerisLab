@@ -1,56 +1,135 @@
+"""
+CSV logging for simulation state with performance optimization.
+
+Buffers data in memory and writes in batches to minimize I/O overhead.
+Implements context manager protocol for safe resource handling.
+"""
 from __future__ import annotations
 import csv
-import os
+from pathlib import Path
 from typing import List, Optional, TextIO, Any
 import numpy as np
 from aerislab.dynamics.body import RigidBody6DOF
 
+
 class CSVLogger:
     """
-    Logs simulation state to a CSV file.
+    High-performance CSV logger for simulation data.
     
-    Optimized for performance:
-    1. Keeps file handle open (avoids repeated open/close syscalls).
-    2. Buffers data in memory and writes in chunks.
-    3. Implements Context Manager protocol for safe resource handling.
+    Features:
+    - Buffered writing (reduces syscalls)
+    - Context manager support (safe file handling)
+    - Automatic header generation
+    - Configurable fields
+    
+    Parameters
+    ----------
+    filepath : str | Path
+        Output CSV file path
+    buffer_size : int
+        Number of rows to buffer before writing. Higher = fewer writes but more memory.
+        Recommended: 100-1000 for most simulations.
+    fields : List[str] | None
+        State fields to log per body. Default: ["p", "q", "v", "w", "f", "tau"]
+        Options: "p" (position), "q" (quaternion), "v" (velocity), 
+                 "w" (angular velocity), "f" (force), "tau" (torque)
+                 
+    Attributes
+    ----------
+    filepath : Path
+        Path to output CSV file
+    buffer_size : int
+        Number of rows buffered before flush
+    fields : List[str]
+        State fields being logged
+        
+    Notes
+    -----
+    **Usage Patterns:**
+    
+    1. Context manager (recommended):
+    >>> with CSVLogger("output.csv") as logger:
+    ...     for step in range(num_steps):
+    ...         world.step(...)
+    ...         logger.log(world)
+    
+    2. Manual management:
+    >>> logger = CSVLogger("output.csv")
+    >>> for step in range(num_steps):
+    ...     logger.log(world)
+    >>> logger.close()  # Important!
+    
+    3. Auto-managed (via World):
+    >>> world = World.with_logging("my_sim")
+    >>> world.run(solver, duration, dt)
+    >>> # Logger automatically managed
+    
+    Examples
+    --------
+    >>> # Log only positions and velocities
+    >>> logger = CSVLogger("minimal.csv", fields=["p", "v"])
+    >>> 
+    >>> # Large buffer for long simulations
+    >>> logger = CSVLogger("long_sim.csv", buffer_size=5000)
     """
-    def __init__(self, filepath: str, buffer_size: int = 1000, fields: Optional[List[str]] = None) -> None:
-        self.filepath = filepath
+    
+    def __init__(
+        self, 
+        filepath: str | Path, 
+        buffer_size: int = 1000, 
+        fields: Optional[List[str]] = None
+    ) -> None:
+        self.filepath = Path(filepath)
         self.buffer_size = buffer_size
         self.fields = fields if fields is not None else ["p", "q", "v", "w", "f", "tau"]
         
-        self._buffer: List[List[float]] = []
+        # Validate fields
+        valid_fields = {"p", "q", "v", "w", "f", "tau"}
+        invalid = set(self.fields) - valid_fields
+        if invalid:
+            raise ValueError(
+                f"Invalid fields: {invalid}. Valid options: {valid_fields}"
+            )
+        
+        self._buffer: List[List[str]] = []
         self._file: Optional[TextIO] = None
         self._writer = None
         self._header_written = False
         
-        os.makedirs(os.path.dirname(filepath) or ".", exist_ok=True)
+        # Ensure parent directory exists
+        self.filepath.parent.mkdir(parents=True, exist_ok=True)
 
-    def __enter__(self) -> CSVLogger:
-        self._file = open(self.filepath, "w", newline="")
+    def __enter__(self) -> 'CSVLogger':
+        """Open file for writing."""
+        self._file = open(self.filepath, "w", newline="", encoding="utf-8")
         self._writer = csv.writer(self._file)
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb) -> None:
+        """Close file, flushing any remaining data."""
         self.close()
 
-    def _get_val(self, b: Any, field: str) -> Any:
-        """Retrieve value from body, handling both attributes and generalized forces."""
+    def _get_val(self, b: RigidBody6DOF, field: str) -> Any:
+        """Retrieve field value from body."""
         if hasattr(b, field):
             return getattr(b, field)
         
-        # Fallback for forces on RigidBody6DOF which might not be stored as attributes
-        if field in ['f', 'tau'] and hasattr(b, 'generalized_force'):
+        # Special handling for force/torque (accumulated values)
+        if field in {'f', 'tau'}:
             gf = b.generalized_force()
-            if field == 'f': return gf[:3]
-            if field == 'tau': return gf[3:]
+            if field == 'f':
+                return gf[:3]
+            if field == 'tau':
+                return gf[3:]
+        
         return None
 
     def _write_header(self, world: Any) -> None:
+        """Generate and write CSV header row."""
         hdr = ["t"]
         
-        # Map of fields to their component suffixes
-        vector_fields = {
+        # Map fields to component suffixes
+        field_components = {
             "p": ["x", "y", "z"],
             "q": ["x", "y", "z", "w"],
             "v": ["x", "y", "z"],
@@ -60,55 +139,74 @@ class CSVLogger:
         }
         
         for b in world.bodies:
-            base = f"{b.name}"
             for field in self.fields:
-                if field in vector_fields:
-                    for s in vector_fields[field]:
-                        hdr.append(f"{base}.{field}_{s}")
+                if field in field_components:
+                    for component in field_components[field]:
+                        hdr.append(f"{b.name}.{field}_{component}")
                 else:
-                    # Fallback for scalar or unknown fields
+                    # Fallback for unknown fields
                     val = self._get_val(b, field)
-                    if val is not None and hasattr(val, '__len__') and not isinstance(val, str):
+                    if val is not None and hasattr(val, '__len__'):
                         for i in range(len(val)):
-                            hdr.append(f"{base}.{field}_{i}")
+                            hdr.append(f"{b.name}.{field}_{i}")
                     else:
-                        hdr.append(f"{base}.{field}")
-            
+                        hdr.append(f"{b.name}.{field}")
+        
         if self._writer:
             self._writer.writerow(hdr)
-            self._file.flush()  # Ensure header is written to disk immediately
+            self._file.flush()  # Ensure header written immediately
+        
         self._header_written = True
 
     def log(self, world: Any) -> None:
-        # Auto-open if not used in context manager (backward compatibility)
+        """
+        Log current world state to buffer.
+        
+        Parameters
+        ----------
+        world : World
+            World object to log
+            
+        Notes
+        -----
+        Automatically opens file on first call if not using context manager.
+        Writes to disk when buffer is full.
+        """
+        # Auto-open if not in context manager
         if self._file is None:
             self.__enter__()
 
         if not self._header_written:
             self._write_header(world)
-            
-        row = [str(world.t)]
+        
+        # Build row
+        row = [f"{world.t:.10f}"]  # High precision time
         for b in world.bodies:
             for field in self.fields:
                 val = self._get_val(b, field)
                 if val is not None:
                     if hasattr(val, '__iter__'):
-                        row.extend(map(str, val))
+                        # Vector/array field
+                        row.extend(f"{v:.10e}" for v in val)  # Scientific notation
                     else:
-                        row.append(str(val))
-            
+                        # Scalar field
+                        row.append(f"{val:.10e}")
+        
         self._buffer.append(row)
         
+        # Flush if buffer full
         if len(self._buffer) >= self.buffer_size:
             self.flush()
 
     def flush(self) -> None:
+        """Write buffered data to disk and clear buffer."""
         if self._writer and self._buffer:
             self._writer.writerows(self._buffer)
             self._file.flush()
             self._buffer.clear()
 
     def close(self) -> None:
+        """Flush remaining data and close file."""
         self.flush()
         if self._file:
             self._file.close()

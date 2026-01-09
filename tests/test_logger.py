@@ -1,114 +1,141 @@
-import csv
-import numpy as np
+"""
+Tests for CSV logger with new Path support.
+"""
 import pytest
+import numpy as np
+from pathlib import Path
+import tempfile
+import shutil
+
 from aerislab.logger import CSVLogger
-from aerislab.core import World, HybridSolver
+from aerislab.core.simulation import World
+from aerislab.core.solver import HybridSolver
 from aerislab.dynamics.body import RigidBody6DOF
-
-# --- Mock Objects for Isolation ---
-class MockBody:
-    def __init__(self, name="b1"):
-        self.name = name
-        self.p = np.array([1.0, 2.0, 3.0])
-        self.q = np.array([0.0, 0.0, 0.0, 1.0])
-        self.v = np.array([0.1, 0.2, 0.3])
-        self.w = np.array([0.0, 0.0, 0.1])
-        self.f = np.array([0.0, 0.0, -9.81])
-        self.tau = np.array([0.0, 0.0, 0.0])
-
-class MockWorld:
-    def __init__(self):
-        self.t = 0.0
-        self.bodies = [MockBody("body1"), MockBody("body2")]
+from aerislab.dynamics.forces import Gravity
 
 
-# --- Tests ---
+@pytest.fixture
+def temp_dir():
+    """Create temporary directory for test outputs."""
+    temp = Path(tempfile.mkdtemp())
+    yield temp
+    shutil.rmtree(temp)
 
-def test_logger_basic_io(tmp_path):
-    """Test that logger creates file and writes header + data correctly."""
-    log_path = tmp_path / "test_basic.csv"
-    
-    # Use context manager to ensure close/flush
-    with CSVLogger(str(log_path), buffer_size=1) as logger:
-        world = MockWorld()
-        logger.log(world)
-        
-    assert log_path.exists()
-    
-    with open(log_path, "r", newline="") as f:
-        reader = csv.reader(f)
-        rows = list(reader)
-        
-    # Header + 1 data row
-    assert len(rows) == 2
-    
-    # Check header columns (default fields)
-    header = rows[0]
-    # t + 19 fields * 2 bodies = 1 + 38 = 39 columns
-    assert header[0] == "t"
-    assert "body1.p_x" in header
-    assert "body2.tau_z" in header
-    
-    # Check data t
-    assert float(rows[1][0]) == 0.0
 
-def test_logger_buffering(tmp_path):
-    """Test that data is buffered and only written when buffer fills or flush is called."""
-    log_path = tmp_path / "test_buffer.csv"
-    buffer_size = 5
+def test_logger_path_support(temp_dir):
+    """Test logger accepts Path objects."""
+    csv_path = temp_dir / "test.csv"
+    logger = CSVLogger(csv_path)
     
-    logger = CSVLogger(str(log_path), buffer_size=buffer_size)
-    world = MockWorld()
+    assert logger.filepath == csv_path
+    assert isinstance(logger.filepath, Path)
+
+
+def test_logger_invalid_fields():
+    """Test logger rejects invalid field names."""
+    with pytest.raises(ValueError, match="Invalid fields"):
+        CSVLogger("test.csv", fields=["p", "invalid_field"])
+
+
+def test_logger_context_manager(temp_dir):
+    """Test logger works as context manager."""
+    csv_path = temp_dir / "context.csv"
     
-    # 1. Log fewer items than buffer size
-    for i in range(buffer_size - 1):
-        world.t = float(i)
-        logger.log(world)
-        
-    # File should exist (created in init/first log) but contain only header 
-    with open(log_path, "r") as f:
+    world = World()
+    body = RigidBody6DOF(
+        "test", 1.0, np.eye(3),
+        np.zeros(3), np.array([0, 0, 0, 1])
+    )
+    world.add_body(body)
+    
+    with CSVLogger(csv_path) as logger:
+        for _ in range(10):
+            logger.log(world)
+            world.t += 0.1
+    
+    # File should exist and have data
+    assert csv_path.exists()
+    with open(csv_path, 'r') as f:
         lines = f.readlines()
-    assert len(lines) == 1  # Header only
+        assert len(lines) == 11  # Header + 10 data rows
+
+
+def test_logger_manual_close(temp_dir):
+    """Test manual logger management."""
+    csv_path = temp_dir / "manual.csv"
     
-    # 2. Log one more to trigger flush
-    world.t = float(buffer_size)
+    world = World()
+    body = RigidBody6DOF(
+        "test", 1.0, np.eye(3),
+        np.zeros(3), np.array([0, 0, 0, 1])
+    )
+    world.add_body(body)
+    
+    logger = CSVLogger(csv_path, buffer_size=5)
+    
+    for _ in range(10):
+        logger.log(world)
+        world.t += 0.1
+    
+    logger.close()
+    
+    assert csv_path.exists()
+
+
+def test_logger_buffer_flush(temp_dir):
+    """Test buffer flushes at correct size."""
+    csv_path = temp_dir / "buffer.csv"
+    
+    world = World()
+    body = RigidBody6DOF(
+        "test", 1.0, np.eye(3),
+        np.zeros(3), np.array([0, 0, 0, 1])
+    )
+    world.add_body(body)
+    
+    logger = CSVLogger(csv_path, buffer_size=3)
+    
+    # Log 2 rows (buffer not full)
+    logger.log(world)
+    world.t += 0.1
     logger.log(world)
     
-    with open(log_path, "r") as f:
+    # Check file has only header (buffer not flushed)
+    with open(csv_path, 'r') as f:
         lines = f.readlines()
-    assert len(lines) == 1 + buffer_size  # Header + buffered rows
+        assert len(lines) == 1  # Just header
+    
+    # Log 3rd row (triggers flush)
+    world.t += 0.1
+    logger.log(world)
+    
+    # Now should have header + 3 rows
+    with open(csv_path, 'r') as f:
+        lines = f.readlines()
+        assert len(lines) == 4
     
     logger.close()
 
-def test_logger_custom_fields(tmp_path):
-    """Test logging with a restricted set of fields."""
-    log_path = tmp_path / "test_custom.csv"
-    fields = ["p", "v"] # Only position and velocity
-    
-    with CSVLogger(str(log_path), fields=fields) as logger:
-        world = MockWorld()
-        logger.log(world)
-        
-    with open(log_path, "r", newline="") as f:
-        reader = csv.reader(f)
-        rows = list(reader)
-        
-    header = rows[0]
-    # t + (p(3) + v(3)) * 2 bodies = 1 + 6*2 = 13 columns
-    assert len(header) == 13
-    assert header[1] == "body1.p_x"
-    assert "body1.q_x" not in header
 
-def test_simulation_integration(tmp_path):
-    """Test that World automatically handles logging during run()."""
-    log_path = tmp_path / "sim_auto.csv"
+def test_logger_custom_fields(temp_dir):
+    """Test logging with custom field selection."""
+    csv_path = temp_dir / "custom.csv"
     
-    # Create world with logging enabled
-    w = World(log_enabled=True, log_file=str(log_path))
-    w.add_body(RigidBody6DOF("test_body", 1.0, np.eye(3), np.zeros(3), np.array([0,0,0,1])))
+    world = World()
+    body = RigidBody6DOF(
+        "test", 1.0, np.eye(3),
+        np.zeros(3), np.array([0, 0, 0, 1])
+    )
+    world.add_body(body)
     
-    w.run(HybridSolver(), duration=0.1, dt=0.05)
+    # Log only position and velocity
+    logger = CSVLogger(csv_path, fields=["p", "v"])
+    logger.log(world)
+    logger.close()
     
-    assert log_path.exists()
-    with open(log_path, "r") as f:
-        assert len(f.readlines()) >= 3 # Header + at least 2 steps
+    # Check header has only p and v
+    with open(csv_path, 'r') as f:
+        header = f.readline().strip()
+        assert "test.p_x" in header
+        assert "test.v_x" in header
+        assert "test.q_x" not in header  # Quaternion not logged

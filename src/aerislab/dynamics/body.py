@@ -1,21 +1,76 @@
+"""
+Rigid body dynamics with 6 degrees of freedom using quaternion representation.
+
+All physical quantities use SI units:
+- Position: meters [m]
+- Velocity: meters per second [m/s]
+- Angular velocity: radians per second [rad/s]
+- Mass: kilograms [kg]
+- Inertia: kilogram-meter-squared [kg·m²]
+"""
 from __future__ import annotations
 import numpy as np
+from numpy.typing import NDArray
 from scipy.spatial.transform import Rotation as ScR
+import warnings
 
-Array = np.ndarray
+# Constants
+QUATERNION_EPSILON = 1e-12
+MIN_MASS = 1e-10  # Minimum mass to avoid division by zero
 
-def quat_normalize(q: Array) -> Array:
-    """Return unit quaternion (float64). q shape: (4,)."""
+
+def quat_normalize(q: NDArray[np.float64]) -> NDArray[np.float64]:
+    """
+    Return unit quaternion (float64).
+    
+    Parameters
+    ----------
+    q : NDArray[np.float64]
+        Quaternion in scalar-last format [x, y, z, w].
+        
+    Returns
+    -------
+    NDArray[np.float64]
+        Normalized unit quaternion. Returns [0, 0, 0, 1] if input norm is zero.
+        
+    Notes
+    -----
+    Uses scalar-last convention: [qx, qy, qz, qw] where qw is the real part.
+    """
     q = np.asarray(q, dtype=np.float64)
     n = np.linalg.norm(q)
-    if n == 0.0:
+    if n < QUATERNION_EPSILON:
+        warnings.warn(
+            "Zero-norm quaternion detected. Returning identity quaternion [0,0,0,1].",
+            RuntimeWarning,
+            stacklevel=2
+        )
         return np.array([0.0, 0.0, 0.0, 1.0], dtype=np.float64)
     return q / n
 
-def quat_derivative(q: Array, omega: Array) -> Array:
+
+def quat_derivative(q: NDArray[np.float64], omega: NDArray[np.float64]) -> NDArray[np.float64]:
     """
-    qdot = 0.5 * q ⊗ [ω, 0] (scalar-last)
-    q: (4,), ω: (3,) -> (4,)
+    Compute quaternion derivative from angular velocity.
+    
+    Uses the formula: qdot = 0.5 * q ⊗ [ω, 0] (scalar-last convention)
+    
+    Parameters
+    ----------
+    q : NDArray[np.float64]
+        Unit quaternion [x, y, z, w] (4,)
+    omega : NDArray[np.float64]
+        Angular velocity in world frame [ωx, ωy, ωz] (3,) [rad/s]
+        
+    Returns
+    -------
+    NDArray[np.float64]
+        Quaternion time derivative (4,) [rad/s]
+        
+    References
+    ----------
+    .. [1] Kuipers, J. B. (1999). Quaternions and Rotation Sequences.
+           Princeton University Press.
     """
     qx, qy, qz, qw = q
     ox, oy, oz = omega
@@ -26,26 +81,92 @@ def quat_derivative(q: Array, omega: Array) -> Array:
         -qx*ox - qy*oy - qz*oz
     ], dtype=np.float64)
 
+
+def quat_integrate_exponential_map(
+    q: NDArray[np.float64], 
+    omega: NDArray[np.float64], 
+    dt: float
+) -> NDArray[np.float64]:
+    """
+    Integrate quaternion using exponential map (more accurate than Euler).
+    
+    This method preserves quaternion unit norm better than simple Euler integration
+    and is recommended for long simulations or large angular velocities.
+    
+    Parameters
+    ----------
+    q : NDArray[np.float64]
+        Current unit quaternion (4,)
+    omega : NDArray[np.float64]
+        Angular velocity [rad/s] (3,)
+    dt : float
+        Time step [s]
+        
+    Returns
+    -------
+    NDArray[np.float64]
+        Updated unit quaternion (4,)
+        
+    Notes
+    -----
+    Uses scipy's Rotation for robust implementation.
+    """
+    if np.linalg.norm(omega) < QUATERNION_EPSILON:
+        return q  # No rotation
+    
+    # Create rotation from current quaternion
+    R_current = ScR.from_quat(q)
+    
+    # Create incremental rotation from angular velocity
+    angle = np.linalg.norm(omega) * dt
+    if angle < QUATERNION_EPSILON:
+        return q
+    axis = omega / np.linalg.norm(omega)
+    R_delta = ScR.from_rotvec(axis * angle)
+    
+    # Compose rotations
+    R_new = R_delta * R_current
+    return R_new.as_quat()
+
+
 class RigidBody6DOF:
     """
     6-DoF rigid body in world frame with quaternion orientation.
 
-    Frames & state:
-    - p (3,): world position of body origin [m]
-    - q (4,): unit quaternion body->world (scalar-last [x,y,z,w]) [-]
-    - v (3,): world linear velocity [m/s]
-    - w (3,): world angular velocity [rad/s]
+    Coordinate Frames
+    -----------------
+    - World frame: Inertial reference frame (fixed)
+    - Body frame: Principal axes frame attached to rigid body
+    
+    State Variables
+    ---------------
+    - p : NDArray[np.float64]
+        Position of body origin in world frame [m] (3,)
+    - q : NDArray[np.float64]
+        Unit quaternion body->world (scalar-last [x,y,z,w]) (4,)
+    - v : NDArray[np.float64]
+        Linear velocity in world frame [m/s] (3,)
+    - w : NDArray[np.float64]
+        Angular velocity in world frame [rad/s] (3,)
 
-    Properties:
-    - mass m [kg]
-    - I_body (3,3): inertia in body principal frame [kg m^2]
+    Properties
+    ----------
+    - mass : float
+        Body mass [kg]
+    - I_body : NDArray[np.float64]
+        Inertia tensor in body principal frame [kg·m²] (3,3)
+    
+    Force/Torque Accumulators (cleared each step)
+    ----------------------------------------------
+    - f : NDArray[np.float64]
+        Accumulated force in world frame [N] (3,)
+    - tau : NDArray[np.float64]
+        Accumulated torque in world frame [N·m] (3,)
 
-    World inertia: I_world = R(q) @ I_body @ R(q)^T
-
-    Forces & torques accumulate per step:
-    - f (3,), tau (3,)
-
-    Use __slots__ to reduce per-step allocations.
+    Notes
+    -----
+    Uses __slots__ to reduce memory overhead and improve cache performance.
+    World inertia tensor: I_world = R(q) @ I_body @ R(q)^T
     """
     __slots__ = (
         "name", "p", "q", "v", "w",
@@ -59,53 +180,151 @@ class RigidBody6DOF:
         self,
         name: str,
         mass: float,
-        inertia_tensor_body: Array,
-        position: Array,
-        orientation: Array,
-        linear_velocity: Array | None = None,
-        angular_velocity: Array | None = None,
+        inertia_tensor_body: NDArray[np.float64],
+        position: NDArray[np.float64],
+        orientation: NDArray[np.float64],
+        linear_velocity: NDArray[np.float64] | None = None,
+        angular_velocity: NDArray[np.float64] | None = None,
         radius: float = 0.0,
     ) -> None:
+        """
+        Initialize a 6-DOF rigid body.
+        
+        Parameters
+        ----------
+        name : str
+            Unique identifier for the body
+        mass : float
+            Body mass [kg]. Must be positive. Use large mass for quasi-static bodies.
+        inertia_tensor_body : NDArray[np.float64]
+            3x3 inertia tensor in body principal frame [kg·m²]
+        position : NDArray[np.float64]
+            Initial position in world frame [m] (3,)
+        orientation : NDArray[np.float64]
+            Initial orientation quaternion [x,y,z,w] (4,). Will be normalized.
+        linear_velocity : NDArray[np.float64] | None
+            Initial linear velocity [m/s] (3,). Defaults to zero.
+        angular_velocity : NDArray[np.float64] | None
+            Initial angular velocity [rad/s] (3,). Defaults to zero.
+        radius : float
+            Characteristic radius for visualization [m]. Optional.
+            
+        Raises
+        ------
+        ValueError
+            If mass is negative or inertia tensor is not positive definite.
+        """
+        if mass < 0:
+            raise ValueError(f"Mass must be non-negative, got {mass}")
+        if mass < MIN_MASS:
+            warnings.warn(
+                f"Very small mass ({mass} kg) detected. Consider using a larger value.",
+                RuntimeWarning
+            )
+            
         self.name = name
         self.mass = float(mass)
-        self.inv_mass = 0.0 if self.mass == 0.0 else 1.0 / self.mass
-        self.I_body = np.asarray(inertia_tensor_body, dtype=np.float64)
-        self.I_body_inv = np.linalg.inv(self.I_body)
+        self.inv_mass = 0.0 if self.mass < MIN_MASS else 1.0 / self.mass
+        
+        # Validate and store inertia tensor
+        I = np.asarray(inertia_tensor_body, dtype=np.float64)
+        if I.shape != (3, 3):
+            raise ValueError(f"Inertia tensor must be 3x3, got shape {I.shape}")
+        
+        # Check if inertia is positive definite
+        eigenvalues = np.linalg.eigvals(I)
+        if np.any(eigenvalues <= 0):
+            raise ValueError(
+                f"Inertia tensor must be positive definite. Got eigenvalues: {eigenvalues}"
+            )
+        
+        self.I_body = I.copy()
+        try:
+            self.I_body_inv = np.linalg.inv(self.I_body)
+        except np.linalg.LinAlgError as e:
+            raise ValueError(f"Cannot invert inertia tensor: {e}") from e
+        
+        # Initialize state
         self.p = np.asarray(position, dtype=np.float64).copy()
         self.q = quat_normalize(np.asarray(orientation, dtype=np.float64).copy())
-        self.v = np.zeros(3, dtype=np.float64) if linear_velocity is None else np.asarray(linear_velocity, dtype=np.float64).copy()
-        self.w = np.zeros(3, dtype=np.float64) if angular_velocity is None else np.asarray(angular_velocity, dtype=np.float64).copy()
+        self.v = (np.zeros(3, dtype=np.float64) if linear_velocity is None 
+                  else np.asarray(linear_velocity, dtype=np.float64).copy())
+        self.w = (np.zeros(3, dtype=np.float64) if angular_velocity is None 
+                  else np.asarray(angular_velocity, dtype=np.float64).copy())
+        
         self.radius = float(radius)
+        
+        # Force/torque accumulators
         self.f = np.zeros(3, dtype=np.float64)
         self.tau = np.zeros(3, dtype=np.float64)
+        
+        # Per-body force list
         self.per_body_forces: list = []
 
-    # --- basic ops ---
     def clear_forces(self) -> None:
+        """Reset force and torque accumulators to zero."""
         self.f.fill(0.0)
         self.tau.fill(0.0)
 
-    def rotation_world(self) -> Array:
+    def rotation_world(self) -> NDArray[np.float64]:
+        """
+        Get rotation matrix from body to world frame.
+        
+        Returns
+        -------
+        NDArray[np.float64]
+            3x3 rotation matrix R such that v_world = R @ v_body
+        """
         return ScR.from_quat(self.q).as_matrix()
 
-    def inertia_world(self) -> Array:
+    def inertia_world(self) -> NDArray[np.float64]:
+        """
+        Compute inertia tensor in world frame.
+        
+        Returns
+        -------
+        NDArray[np.float64]
+            3x3 inertia tensor in world frame [kg·m²]
+            
+        Notes
+        -----
+        I_world = R @ I_body @ R^T where R is the rotation matrix.
+        """
         R = self.rotation_world()
         return R @ self.I_body @ R.T
 
-    def mass_matrix_world(self) -> Array:
+    def mass_matrix_world(self) -> NDArray[np.float64]:
         """
-        Return block-diagonal generalized mass for this body:
-        M_i = diag(m I3, I_world) with shape (6,6).
+        Return block-diagonal generalized mass matrix.
+        
+        Returns
+        -------
+        NDArray[np.float64]
+            6x6 mass matrix M = diag(m*I₃, I_world)
+            
+        Notes
+        -----
+        Used in KKT system assembly. Structure:
+        [ m*I₃    0      ]
+        [  0    I_world  ]
         """
         M = np.zeros((6, 6), dtype=np.float64)
         M[0:3, 0:3] = self.mass * np.eye(3)
         M[3:6, 3:6] = self.inertia_world()
         return M
 
-    def inv_mass_matrix_world(self) -> Array:
+    def inv_mass_matrix_world(self) -> NDArray[np.float64]:
         """
-        Return block-diagonal inverse generalized mass:
-        W_i = diag(1/m I3, I_world_inv) with shape (6,6).
+        Return block-diagonal inverse generalized mass matrix.
+        
+        Returns
+        -------
+        NDArray[np.float64]
+            6x6 inverse mass matrix W = diag((1/m)*I₃, I_world⁻¹)
+            
+        Notes
+        -----
+        Used in KKT system for computing constraint forces efficiently.
         """
         W = np.zeros((6, 6), dtype=np.float64)
         W[0:3, 0:3] = self.inv_mass * np.eye(3)
@@ -113,11 +332,26 @@ class RigidBody6DOF:
         W[3:6, 3:6] = R @ self.I_body_inv @ R.T
         return W
 
-    # --- force application ---
-    def apply_force(self, f: Array, point_world: Array | None = None) -> None:
+    def apply_force(
+        self, 
+        f: NDArray[np.float64], 
+        point_world: NDArray[np.float64] | None = None
+    ) -> None:
         """
-        Add world force f (3,). If point_world is provided, applies torque τ += r × f
-        where r = point_world - body origin in world.
+        Apply force to the body.
+        
+        Parameters
+        ----------
+        f : NDArray[np.float64]
+            Force vector in world frame [N] (3,)
+        point_world : NDArray[np.float64] | None
+            Application point in world frame [m] (3,). If provided,
+            generates torque τ = r × f where r = point_world - body_origin.
+            If None, force is applied at center of mass (no torque).
+            
+        Notes
+        -----
+        Forces accumulate until clear_forces() is called.
         """
         f = np.asarray(f, dtype=np.float64)
         self.f += f
@@ -125,27 +359,89 @@ class RigidBody6DOF:
             r = np.asarray(point_world, dtype=np.float64) - self.p
             self.tau += np.cross(r, f)
 
-    def apply_torque(self, tau: Array) -> None:
+    def apply_torque(self, tau: NDArray[np.float64]) -> None:
+        """
+        Apply torque to the body.
+        
+        Parameters
+        ----------
+        tau : NDArray[np.float64]
+            Torque vector in world frame [N·m] (3,)
+        """
         self.tau += np.asarray(tau, dtype=np.float64)
 
-    def generalized_force(self) -> Array:
-        """Return concatenated generalized force [f; tau] (6,)."""
+    def generalized_force(self) -> NDArray[np.float64]:
+        """
+        Return concatenated generalized force vector.
+        
+        Returns
+        -------
+        NDArray[np.float64]
+            Generalized force [f; tau] (6,) where f is force [N]
+            and tau is torque [N·m]
+        """
         out = np.zeros(6, dtype=np.float64)
         out[:3] = self.f
         out[3:] = self.tau
         return out
 
-    # --- integration ---
-    def integrate_semi_implicit(self, dt: float, a_lin: Array, a_ang: Array) -> None:
+    def integrate_semi_implicit(
+        self, 
+        dt: float, 
+        a_lin: NDArray[np.float64], 
+        a_ang: NDArray[np.float64],
+        use_exponential_map: bool = False
+    ) -> None:
         """
-        Semi-implicit (symplectic) Euler:
-        v_{n+1} = v_n + a_lin dt
-        w_{n+1} = w_n + a_ang dt
-        p_{n+1} = p_n + v_{n+1} dt
-        q_{n+1} = normalize( q_n + qdot(v=w_{n+1}) dt )
+        Semi-implicit (symplectic) Euler integration.
+        
+        Parameters
+        ----------
+        dt : float
+            Time step [s]
+        a_lin : NDArray[np.float64]
+            Linear acceleration [m/s²] (3,)
+        a_ang : NDArray[np.float64]
+            Angular acceleration [rad/s²] (3,)
+        use_exponential_map : bool
+            If True, use exponential map for quaternion integration (more accurate).
+            If False, use simple Euler method (faster but less accurate).
+            
+        Notes
+        -----
+        Integration order (symplectic):
+        1. v_{n+1} = v_n + a_lin * dt
+        2. w_{n+1} = w_n + a_ang * dt
+        3. p_{n+1} = p_n + v_{n+1} * dt
+        4. q_{n+1} = integrate_quaternion(q_n, w_{n+1}, dt)
+        
+        This ordering preserves energy better than explicit Euler.
         """
+        # Update velocities first (momentum level)
         self.v += a_lin * dt
         self.w += a_ang * dt
+        
+        # Update position using new velocity
         self.p += self.v * dt
-        qdot = quat_derivative(self.q, self.w)
-        self.q = quat_normalize(self.q + qdot * dt)
+        
+        # Update orientation
+        if use_exponential_map:
+            self.q = quat_integrate_exponential_map(self.q, self.w, dt)
+        else:
+            # Standard Euler method
+            qdot = quat_derivative(self.q, self.w)
+            self.q = quat_normalize(self.q + qdot * dt)
+    
+    def kinetic_energy(self) -> float:
+        """
+        Compute total kinetic energy.
+        
+        Returns
+        -------
+        float
+            Kinetic energy [J] = 0.5 * m * |v|² + 0.5 * ω^T * I_world * ω
+        """
+        T_trans = 0.5 * self.mass * np.dot(self.v, self.v)
+        I_world = self.inertia_world()
+        T_rot = 0.5 * np.dot(self.w, I_world @ self.w)
+        return float(T_trans + T_rot)
