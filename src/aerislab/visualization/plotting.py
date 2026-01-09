@@ -1,61 +1,60 @@
+"""
+Visualization utilities for simulation results.
+
+Provides functions to create standard plots from CSV log files:
+- 3D trajectory plots
+- Velocity and acceleration time series
+- Force and torque time series
+- Comparison plots for multiple simulations
+"""
 from __future__ import annotations
-import os
-import csv
-from typing import Dict, Tuple, List, Iterable
-import numpy as np
+import pandas as pd
 import matplotlib.pyplot as plt
-from matplotlib.figure import Figure
-from mpl_toolkits.mplot3d import Axes3D  # noqa: F401  (registers 3D projection)
+from mpl_toolkits.mplot3d import Axes3D
+import numpy as np
+from pathlib import Path
+from typing import Dict, List, Iterable, Optional
 
 
-def _load_csv(filepath: str) -> Tuple[np.ndarray, Dict[str, np.ndarray], List[str]]:
+def _load_csv(csv_path: str) -> Dict[str, np.ndarray]:
     """
-    Load a CSV produced by CSVLogger.
-
+    Load CSV and return dictionary of column name -> numpy array.
+    
+    Parameters
+    ----------
+    csv_path : str
+        Path to CSV file
+        
     Returns
     -------
-    t : (N,) array
-        Time vector.
-    cols : dict[str, np.ndarray]
-        Mapping column_name -> (N,) array.
-    headers : list[str]
-        Column headers in order (first one should be 't').
-
-    Notes
-    -----
-    We avoid pandas; this is robust enough for the logger's well-formed CSV.
+    Dict[str, np.ndarray]
+        Dictionary mapping column names to data arrays
     """
-    with open(filepath, "r", newline="") as f:
-        reader = csv.reader(f)
-        headers = next(reader)
-    data = np.loadtxt(filepath, delimiter=",", skiprows=1, dtype=float)
-    if data.ndim == 1:  # single row edge case
-        data = data[None, :]
-    cols: Dict[str, np.ndarray] = {}
-    for j, name in enumerate(headers):
-        cols[name] = data[:, j]
-    if headers[0] != "t":
-        raise ValueError("First column must be time 't'.")
-    t = cols["t"]
-    return t, cols, headers
-
-
-def _body_fields(prefix: str) -> Dict[str, str]:
-    """
-    For body 'payload', build expected header names used by CSVLogger.
-    """
-    base = prefix
-    return dict(
-        p_x=f"{base}.p_x", p_y=f"{base}.p_y", p_z=f"{base}.p_z",
-        q_w=f"{base}.q_w", q_x=f"{base}.q_x", q_y=f"{base}.q_y", q_z=f"{base}.q_z",
-        v_x=f"{base}.v_x", v_y=f"{base}.v_y", v_z=f"{base}.v_z",
-        w_x=f"{base}.w_x", w_y=f"{base}.w_y", w_z=f"{base}.w_z",
-        F_x=f"{base}.F_x", F_y=f"{base}.F_y", F_z=f"{base}.F_z",
-        T_x=f"{base}.T_x", T_y=f"{base}.T_y", T_z=f"{base}.T_z",
-    )
+    df = pd.read_csv(csv_path)
+    return {col: df[col].values for col in df.columns}
 
 
 def _get_components(cols: Dict[str, np.ndarray], names: Iterable[str]) -> List[np.ndarray]:
+    """
+    Extract named columns from dictionary.
+    
+    Parameters
+    ----------
+    cols : Dict[str, np.ndarray]
+        Column dictionary
+    names : Iterable[str]
+        Column names to extract
+        
+    Returns
+    -------
+    List[np.ndarray]
+        List of data arrays
+        
+    Raises
+    ------
+    KeyError
+        If a requested column is not found
+    """
     out = []
     for name in names:
         if name not in cols:
@@ -64,190 +63,352 @@ def _get_components(cols: Dict[str, np.ndarray], names: Iterable[str]) -> List[n
     return out
 
 
-def _finite_diff(t: np.ndarray, y: np.ndarray) -> np.ndarray:
-    """
-    Central-difference derivative with uneven spacing support via np.gradient.
-
-    Parameters
-    ----------
-    t : (N,)
-    y : (N,) or (N,3)
-
-    Returns
-    -------
-    dy_dt : same shape as y
-    """
-    if y.ndim == 1:
-        return np.gradient(y, t)
-    elif y.ndim == 2 and y.shape[1] == 3:
-        return np.column_stack([np.gradient(y[:, k], t) for k in range(3)])
-    else:
-        raise ValueError("y must be shape (N,) or (N,3).")
-
-
 def plot_trajectory_3d(
     csv_path: str,
     body_name: str,
-    save_path: str | None = None,
-    show: bool = True,
-) -> Figure:
+    save_path: Optional[str] = None,
+    show: bool = False,
+    figsize: tuple = (10, 8),
+) -> None:
     """
-    Plot 3D trajectory (x,y,z) of a given body and z(t) subplot.
-
+    Plot 3D trajectory of a body.
+    
+    Creates a 3D plot showing the spatial path of the body with start and
+    end points marked.
+    
     Parameters
     ----------
     csv_path : str
-        Path to logger CSV.
+        Path to simulation CSV file
     body_name : str
-        The 'name' used when creating the body (e.g., 'payload').
+        Name of the body to plot
     save_path : str | None
-        If given, save the figure to this path (png/svg).
+        If provided, save figure to this path
     show : bool
-        Whether to call plt.show().
-
-    Returns
-    -------
-    fig : Figure
+        If True, display the plot interactively
+    figsize : tuple
+        Figure size (width, height) in inches
+        
+    Examples
+    --------
+    >>> plot_trajectory_3d(
+    ...     "output/my_sim/logs/simulation.csv",
+    ...     "payload",
+    ...     save_path="trajectory.png"
+    ... )
     """
-    t, cols, _ = _load_csv(csv_path)
-    f = _body_fields(body_name)
-    px, py, pz = _get_components(cols, [f["p_x"], f["p_y"], f["p_z"]])
-
-    fig = plt.figure(figsize=(10, 6))
-    gs = fig.add_gridspec(2, 2, height_ratios=[2.0, 1.0])
-    ax3d = fig.add_subplot(gs[0, :], projection="3d")
-    axz = fig.add_subplot(gs[1, :])
-
-    # 3D path
-    ax3d.plot(px, py, pz, lw=2.0, color="#1a73e8")
-    ax3d.scatter(px[0], py[0], pz[0], color="#34a853", s=40, label="start")
-    ax3d.scatter(px[-1], py[-1], pz[-1], color="#ea4335", s=40, label="end")
-    ax3d.set_xlabel("x [m]"); ax3d.set_ylabel("y [m]"); ax3d.set_zlabel("z [m]")
-    ax3d.set_title(f"3D trajectory — {body_name}")
-    ax3d.legend(loc="best")
-
-    # z(t)
-    axz.plot(t, pz, color="#1a73e8", lw=2)
-    axz.set_xlabel("t [s]"); axz.set_ylabel("z [m]")
-    axz.grid(True, alpha=0.3)
-    axz.set_title("Altitude vs time")
-
-    fig.tight_layout()
+    cols = _load_csv(csv_path)
+    
+    # Get position components
+    p = {k: f"{body_name}.{k}" for k in ["p_x", "p_y", "p_z"]}
+    px, py, pz = _get_components(cols, [p["p_x"], p["p_y"], p["p_z"]])
+    
+    # Create 3D plot
+    fig = plt.figure(figsize=figsize)
+    ax = fig.add_subplot(111, projection='3d')
+    
+    # Plot trajectory
+    ax.plot(px, py, pz, 'b-', linewidth=1.5, alpha=0.7, label='Trajectory')
+    
+    # Mark start and end
+    ax.scatter([px[0]], [py[0]], [pz[0]], c='green', s=100, marker='o', 
+               label='Start', zorder=5)
+    ax.scatter([px[-1]], [py[-1]], [pz[-1]], c='red', s=100, marker='x', 
+               label='End', zorder=5)
+    
+    # Labels and formatting
+    ax.set_xlabel('X [m]')
+    ax.set_ylabel('Y [m]')
+    ax.set_zlabel('Z [m]')
+    ax.set_title(f'3D Trajectory: {body_name}')
+    ax.legend()
+    ax.grid(True, alpha=0.3)
+    
+    # Equal aspect ratio for better visualization
+    max_range = np.array([px.max()-px.min(), py.max()-py.min(), 
+                          pz.max()-pz.min()]).max() / 2.0
+    mid_x = (px.max()+px.min()) * 0.5
+    mid_y = (py.max()+py.min()) * 0.5
+    mid_z = (pz.max()+pz.min()) * 0.5
+    ax.set_xlim(mid_x - max_range, mid_x + max_range)
+    ax.set_ylim(mid_y - max_range, mid_y + max_range)
+    ax.set_zlim(mid_z - max_range, mid_z + max_range)
+    
+    plt.tight_layout()
+    
     if save_path:
-        os.makedirs(os.path.dirname(save_path) or ".", exist_ok=True)
-        fig.savefig(save_path, dpi=180, bbox_inches="tight")
+        plt.savefig(save_path, dpi=150, bbox_inches='tight')
+        
     if show:
         plt.show()
-    return fig
+    else:
+        plt.close()
 
 
 def plot_velocity_and_acceleration(
     csv_path: str,
     body_name: str,
-    save_path: str | None = None,
-    show: bool = True,
+    save_path: Optional[str] = None,
+    show: bool = False,
     magnitude: bool = True,
-) -> Figure:
+    figsize: tuple = (12, 8),
+) -> None:
     """
-    Plot velocity components & magnitude, and acceleration components & magnitude
-    (acceleration via finite difference of velocity).
-
+    Plot velocity and acceleration time series.
+    
+    Creates two subplots showing velocity and acceleration over time.
+    Can plot either magnitude or individual components.
+    
     Parameters
     ----------
     csv_path : str
+        Path to simulation CSV file
     body_name : str
+        Name of the body to plot
     save_path : str | None
+        If provided, save figure to this path
     show : bool
-
-    Returns
-    -------
-    fig : Figure
+        If True, display the plot interactively
+    magnitude : bool
+        If True, plot magnitudes. If False, plot x/y/z components.
+    figsize : tuple
+        Figure size (width, height) in inches
+        
+    Examples
+    --------
+    >>> plot_velocity_and_acceleration(
+    ...     "output/my_sim/logs/simulation.csv",
+    ...     "payload",
+    ...     magnitude=False  # Show components
+    ... )
     """
-    t, cols, _ = _load_csv(csv_path)
-    f = _body_fields(body_name)
-    vx, vy, vz = _get_components(cols, [f["v_x"], f["v_y"], f["v_z"]])
-    V = np.column_stack([vx, vy, vz])
-    speed = np.linalg.norm(V, axis=1)
-
-    A = _finite_diff(t, V)  # (N,3)
-    ax, ay, az = A[:, 0], A[:, 1], A[:, 2]
-    amag = np.linalg.norm(A, axis=1)
-
-    fig, axes = plt.subplots(2, 1, figsize=(10, 7), sharex=True)
-
-    # Velocity
-    axes[0].plot(t, vx, label="v_x", color="#1a73e8")
-    axes[0].plot(t, vy, label="v_y", color="#34a853")
-    axes[0].plot(t, vz, label="v_z", color="#fbbc05")
+    cols = _load_csv(csv_path)
+    t = cols["t"]
+    
+    # Get velocity and acceleration components
+    v = {k: f"{body_name}.{k}" for k in ["v_x", "v_y", "v_z"]}
+    vx, vy, vz = _get_components(cols, [v["v_x"], v["v_y"], v["v_z"]])
+    
+    # Calculate acceleration from velocity (numerical derivative)
+    dt = np.diff(t)
+    ax_arr = np.gradient(vx, t)
+    ay_arr = np.gradient(vy, t)
+    az_arr = np.gradient(vz, t)
+    
+    fig, (ax1, ax2) = plt.subplots(2, 1, figsize=figsize, sharex=True)
+    
     if magnitude:
-        axes[0].plot(t, speed, label="|v|", color="#ea4335", lw=2.0, alpha=0.8)
-    axes[0].set_ylabel("velocity [m/s]")
-    axes[0].grid(True, alpha=0.3)
-    axes[0].legend(loc="best")
-    axes[0].set_title(f"Velocity — {body_name}")
-
-    # Acceleration
-    axes[1].plot(t, ax, label="a_x", color="#1a73e8")
-    axes[1].plot(t, ay, label="a_y", color="#34a853")
-    axes[1].plot(t, az, label="a_z", color="#fbbc05")
-    if magnitude:
-        axes[1].plot(t, amag, label="|a|", color="#ea4335", lw=2.0, alpha=0.8)
-    axes[1].set_xlabel("t [s]"); axes[1].set_ylabel("accel [m/s²]")
-    axes[1].grid(True, alpha=0.3)
-    axes[1].legend(loc="best")
-    axes[1].set_title("Acceleration (finite diff of v)")
-
-    fig.tight_layout()
+        # Plot magnitudes
+        v_mag = np.sqrt(vx**2 + vy**2 + vz**2)
+        a_mag = np.sqrt(ax_arr**2 + ay_arr**2 + az_arr**2)
+        
+        ax1.plot(t, v_mag, 'b-', linewidth=2, label='|v|')
+        ax1.set_ylabel('Velocity Magnitude [m/s]')
+        ax1.legend()
+        ax1.grid(True, alpha=0.3)
+        
+        ax2.plot(t, a_mag, 'r-', linewidth=2, label='|a|')
+        ax2.set_ylabel('Acceleration Magnitude [m/s²]')
+        ax2.legend()
+        ax2.grid(True, alpha=0.3)
+    else:
+        # Plot components
+        ax1.plot(t, vx, 'r-', linewidth=1.5, label='vx', alpha=0.8)
+        ax1.plot(t, vy, 'g-', linewidth=1.5, label='vy', alpha=0.8)
+        ax1.plot(t, vz, 'b-', linewidth=1.5, label='vz', alpha=0.8)
+        ax1.set_ylabel('Velocity [m/s]')
+        ax1.legend()
+        ax1.grid(True, alpha=0.3)
+        
+        ax2.plot(t, ax_arr, 'r-', linewidth=1.5, label='ax', alpha=0.8)
+        ax2.plot(t, ay_arr, 'g-', linewidth=1.5, label='ay', alpha=0.8)
+        ax2.plot(t, az_arr, 'b-', linewidth=1.5, label='az', alpha=0.8)
+        ax2.set_ylabel('Acceleration [m/s²]')
+        ax2.legend()
+        ax2.grid(True, alpha=0.3)
+    
+    ax1.set_title(f'Kinematics: {body_name}')
+    ax2.set_xlabel('Time [s]')
+    
+    plt.tight_layout()
+    
     if save_path:
-        os.makedirs(os.path.dirname(save_path) or ".", exist_ok=True)
-        fig.savefig(save_path, dpi=180, bbox_inches="tight")
+        plt.savefig(save_path, dpi=150, bbox_inches='tight')
+        
     if show:
         plt.show()
-    return fig
+    else:
+        plt.close()
 
 
 def plot_forces(
     csv_path: str,
     body_name: str,
-    save_path: str | None = None,
-    show: bool = True,
-    magnitude: bool = True
-) -> Figure:
+    save_path: Optional[str] = None,
+    show: bool = False,
+    magnitude: bool = True,
+    figsize: tuple = (12, 8),
+) -> None:
     """
-    Plot resultant force components (from logger) and magnitude.
-
+    Plot forces and torques acting on a body.
+    
+    Creates two subplots showing forces and torques over time.
+    Can plot either magnitude or individual components.
+    
     Parameters
     ----------
     csv_path : str
+        Path to simulation CSV file
     body_name : str
+        Name of the body to plot
     save_path : str | None
+        If provided, save figure to this path
     show : bool
-
-    Returns
-    -------
-    fig : Figure
+        If True, display the plot interactively
+    magnitude : bool
+        If True, plot magnitudes. If False, plot x/y/z components.
+    figsize : tuple
+        Figure size (width, height) in inches
+        
+    Examples
+    --------
+    >>> plot_forces(
+    ...     "output/my_sim/logs/simulation.csv",
+    ...     "payload",
+    ...     magnitude=False  # Show components
+    ... )
     """
-    t, cols, _ = _load_csv(csv_path)
-    f = _body_fields(body_name)
-    Fx, Fy, Fz = _get_components(cols, [f["F_x"], f["F_y"], f["F_z"]])
-    F = np.column_stack([Fx, Fy, Fz])
-    Fmag = np.linalg.norm(F, axis=1)
-
-    fig, ax = plt.subplots(1, 1, figsize=(10, 4))
-    ax.plot(t, Fx, label="F_x", color="#1a73e8")
-    ax.plot(t, Fy, label="F_y", color="#34a853")
-    ax.plot(t, Fz, label="F_z", color="#fbbc05")
+    cols = _load_csv(csv_path)
+    t = cols["t"]
+    
+    # Get force components - USE LOWERCASE f_x, f_y, f_z
+    f = {k: f"{body_name}.{k}" for k in ["f_x", "f_y", "f_z"]}
+    Fx, Fy, Fz = _get_components(cols, [f["f_x"], f["f_y"], f["f_z"]])
+    
+    # Get torque components
+    tau = {k: f"{body_name}.{k}" for k in ["tau_x", "tau_y", "tau_z"]}
+    Tx, Ty, Tz = _get_components(cols, [tau["tau_x"], tau["tau_y"], tau["tau_z"]])
+    
+    fig, (ax1, ax2) = plt.subplots(2, 1, figsize=figsize, sharex=True)
+    
     if magnitude:
-        ax.plot(t, Fmag, label="|F|", color="#ea4335", lw=2.0, alpha=0.8)
-    ax.set_xlabel("t [s]"); ax.set_ylabel("force [N]")
-    ax.grid(True, alpha=0.3)
-    ax.legend(loc="best")
-    ax.set_title(f"Resultant force — {body_name}")
-    fig.tight_layout()
-
+        # Plot magnitudes
+        F_mag = np.sqrt(Fx**2 + Fy**2 + Fz**2)
+        T_mag = np.sqrt(Tx**2 + Ty**2 + Tz**2)
+        
+        ax1.plot(t, F_mag, 'b-', linewidth=2, label='|F|')
+        ax1.set_ylabel('Force Magnitude [N]')
+        ax1.legend()
+        ax1.grid(True, alpha=0.3)
+        
+        ax2.plot(t, T_mag, 'r-', linewidth=2, label='|τ|')
+        ax2.set_ylabel('Torque Magnitude [N·m]')
+        ax2.legend()
+        ax2.grid(True, alpha=0.3)
+    else:
+        # Plot components
+        ax1.plot(t, Fx, 'r-', linewidth=1.5, label='Fx', alpha=0.8)
+        ax1.plot(t, Fy, 'g-', linewidth=1.5, label='Fy', alpha=0.8)
+        ax1.plot(t, Fz, 'b-', linewidth=1.5, label='Fz', alpha=0.8)
+        ax1.set_ylabel('Force [N]')
+        ax1.legend()
+        ax1.grid(True, alpha=0.3)
+        
+        ax2.plot(t, Tx, 'r-', linewidth=1.5, label='τx', alpha=0.8)
+        ax2.plot(t, Ty, 'g-', linewidth=1.5, label='τy', alpha=0.8)
+        ax2.plot(t, Tz, 'b-', linewidth=1.5, label='τz', alpha=0.8)
+        ax2.set_ylabel('Torque [N·m]')
+        ax2.legend()
+        ax2.grid(True, alpha=0.3)
+    
+    ax1.set_title(f'Forces and Torques: {body_name}')
+    ax2.set_xlabel('Time [s]')
+    
+    plt.tight_layout()
+    
     if save_path:
-        os.makedirs(os.path.dirname(save_path) or ".", exist_ok=True)
-        fig.savefig(save_path, dpi=180, bbox_inches="tight")
+        plt.savefig(save_path, dpi=150, bbox_inches='tight')
+        
     if show:
         plt.show()
-    return fig
+    else:
+        plt.close()
+
+
+def compare_trajectories(
+    csv_paths: List[str],
+    body_name: str,
+    labels: Optional[List[str]] = None,
+    save_path: Optional[str] = None,
+    show: bool = False,
+    figsize: tuple = (10, 8),
+) -> None:
+    """
+    Compare 3D trajectories from multiple simulations.
+    
+    Plots multiple trajectories on the same 3D axes for comparison.
+    Useful for parameter studies or comparing solver methods.
+    
+    Parameters
+    ----------
+    csv_paths : List[str]
+        List of paths to CSV files to compare
+    body_name : str
+        Name of the body to plot (must exist in all CSVs)
+    labels : List[str] | None
+        Labels for each trajectory. If None, uses filenames.
+    save_path : str | None
+        If provided, save figure to this path
+    show : bool
+        If True, display the plot interactively
+    figsize : tuple
+        Figure size (width, height) in inches
+        
+    Examples
+    --------
+    >>> compare_trajectories(
+    ...     ["sim1/logs/simulation.csv", "sim2/logs/simulation.csv"],
+    ...     "payload",
+    ...     labels=["Case 1", "Case 2"]
+    ... )
+    """
+    if labels is None:
+        labels = [Path(p).parent.parent.name for p in csv_paths]
+    
+    if len(labels) != len(csv_paths):
+        raise ValueError(f"Number of labels ({len(labels)}) must match number of CSV files ({len(csv_paths)})")
+    
+    fig = plt.figure(figsize=figsize)
+    ax = fig.add_subplot(111, projection='3d')
+    
+    colors = plt.cm.viridis(np.linspace(0, 1, len(csv_paths)))
+    
+    for i, (csv_path, label) in enumerate(zip(csv_paths, labels)):
+        cols = _load_csv(csv_path)
+        
+        # Get position components
+        p = {k: f"{body_name}.{k}" for k in ["p_x", "p_y", "p_z"]}
+        px, py, pz = _get_components(cols, [p["p_x"], p["p_y"], p["p_z"]])
+        
+        # Plot trajectory
+        ax.plot(px, py, pz, linewidth=2, alpha=0.7, label=label, color=colors[i])
+        
+        # Mark start
+        ax.scatter([px[0]], [py[0]], [pz[0]], c=[colors[i]], s=100, marker='o', zorder=5)
+    
+    ax.set_xlabel('X [m]')
+    ax.set_ylabel('Y [m]')
+    ax.set_zlabel('Z [m]')
+    ax.set_title(f'Trajectory Comparison: {body_name}')
+    ax.legend()
+    ax.grid(True, alpha=0.3)
+    
+    plt.tight_layout()
+    
+    if save_path:
+        plt.savefig(save_path, dpi=150, bbox_inches='tight')
+        
+    if show:
+        plt.show()
+    else:
+        plt.close()

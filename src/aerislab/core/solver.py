@@ -102,7 +102,7 @@ def assemble_system(
     
     # Fill mass matrix, forces, and velocities
     for i, b in enumerate(bodies):
-        Wi = b.inv_mass_matrix_world()
+        Wi = b.inv_mass_matrix_world()  # ← THIS IS THE CORRECT METHOD NAME!
         Minv[6*i:6*i+6, 6*i:6*i+6] = Wi
         F[6*i:6*i+6] = b.generalized_force()
         v[6*i:6*i+3] = b.v
@@ -526,18 +526,28 @@ class HybridIVPSolver:
         touchdown_event.terminal = True   # type: ignore[attr-defined]
         touchdown_event.direction = -1.0  # type: ignore[attr-defined]
 
-        # Pack initial state and integrate
+        # Pack initial state
         y0 = self._pack(bodies)
+        
+        # Build solve_ivp kwargs conditionally (to handle max_step=None)
+        solve_ivp_kwargs = {
+            'method': self.method,
+            'rtol': self.rtol,
+            'atol': self.atol,
+            'events': touchdown_event,
+            'dense_output': False,
+        }
+        
+        # Only add max_step if it's not None (scipy doesn't accept None in newer versions)
+        if self.max_step is not None:
+            solve_ivp_kwargs['max_step'] = self.max_step
+        
+        # Integrate
         sol = solve_ivp(
             rhs,
             t_span=(world.t, t_end),
             y0=y0,
-            method=self.method,
-            rtol=self.rtol,
-            atol=self.atol,
-            max_step=self.max_step,
-            events=touchdown_event,
-            dense_output=False,
+            **solve_ivp_kwargs
         )
 
         # Update world with final state

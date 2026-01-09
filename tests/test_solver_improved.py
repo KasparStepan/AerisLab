@@ -39,8 +39,8 @@ def test_assemble_system_no_constraints(two_body_system):
     
     Minv, J, F, rhs, v = assemble_system(bodies, constraints, alpha=0, beta=0)
     
-    assert Minv.shape == (12, 12)  # 6 DOF × 2 bodies
-    assert J.shape == (0, 12)  # No constraints
+    assert Minv.shape == (12, 12)
+    assert J.shape == (0, 12)
     assert F.shape == (12,)
     assert rhs.shape == (0,)
     assert v.shape == (12,)
@@ -60,14 +60,13 @@ def test_assemble_system_with_constraint(two_body_system):
     Minv, J, F, rhs, v = assemble_system(bodies, constraints, alpha=5.0, beta=1.0)
     
     assert Minv.shape == (12, 12)
-    assert J.shape == (1, 12)  # 1 scalar constraint
+    assert J.shape == (1, 12)
     assert F.shape == (12,)
     assert rhs.shape == (1,)
 
 
 def test_solve_kkt_unconstrained():
     """Test KKT solver with no constraints."""
-    # Simple 2D problem: M = I, F = [1, 0]
     Minv = np.eye(2)
     J = np.zeros((0, 2))
     F = np.array([1.0, 0.0])
@@ -75,17 +74,12 @@ def test_solve_kkt_unconstrained():
     
     a, lam = solve_kkt(Minv, J, F, rhs)
     
-    # Should return unconstrained acceleration
     np.testing.assert_array_almost_equal(a, [1.0, 0.0])
     assert lam.shape == (0,)
 
 
 def test_solve_kkt_constrained():
     """Test KKT solver with constraint."""
-    # Two bodies connected by constraint
-    # M = diag(1, 1), F = [1, -1], J = [1, -1], rhs = 0
-    # Should give equal accelerations (rigid connection)
-    
     Minv = np.eye(2)
     J = np.array([[1.0, -1.0]])
     F = np.array([1.0, -1.0])
@@ -116,13 +110,11 @@ def test_fixed_solver_energy_conservation():
     PE0 = body.mass * 9.81 * body.p[2]
     E0 = KE0 + PE0
     
-    # Add gravity force
-    body.apply_force(np.array([0, 0, -9.81 * body.mass]))
-    
     # Integrate
     for _ in range(100):
-        solver.step(bodies, constraints, dt=0.01)
+        body.clear_forces()  # CRITICAL: Clear forces each step!
         body.apply_force(np.array([0, 0, -9.81 * body.mass]))
+        solver.step(bodies, constraints, dt=0.01)
     
     # Final energy
     KE1 = body.kinetic_energy()

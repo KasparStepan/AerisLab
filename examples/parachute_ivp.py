@@ -39,7 +39,7 @@ def build_parachute_system() -> World:
         name="payload",
         mass=payload_mass,
         inertia_tensor_body=I_payload,
-        position=np.array([0.0, 0.0, 3000.0]),
+        position=np.array([0.0, 0.0, 300.0]),
         orientation=np.array([0.0, 0.0, 0.0, 1.0]),
         radius=payload_radius
     )
@@ -53,7 +53,7 @@ def build_parachute_system() -> World:
         name="canopy",
         mass=canopy_mass,
         inertia_tensor_body=I_canopy,
-        position=np.array([0.0, 0.0, 3000.0 + tether_length]),
+        position=np.array([0.0, 0.0, 300.0 + tether_length]),
         orientation=np.array([0.0, 0.0, 0.0, 1.0]),
         radius=1.0
     )
@@ -76,7 +76,7 @@ def build_parachute_system() -> World:
             Cd=1.5,
             area=15.0,
             activation_velocity=30.0,
-            activation_altitude=2000.0,
+            activation_altitude=200.0,
             gate_sharpness=50.0,  # Smooth for IVP solver
             area_collapsed=0.01
         )

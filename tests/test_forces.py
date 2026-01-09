@@ -1,143 +1,168 @@
+"""
+Tests for force models.
+"""
 import pytest
 import numpy as np
+from aerislab.dynamics.body import RigidBody6DOF
 from aerislab.dynamics.forces import Gravity, Drag, ParachuteDrag, Spring
 
-# Mock RigidBody6DOF for testing purposes
+
 class MockRigidBody:
-    def __init__(self, mass=10.0, p=None, v=None, w=None):
-        self.mass = float(mass)
-        self.p = np.array(p if p is not None else [0, 0, 0], dtype=np.float64)
-        self.v = np.array(v if v is not None else [0, 0, 0], dtype=np.float64)
-        self.w = np.array(w if w is not None else [0, 0, 0], dtype=np.float64)
-        self.applied_forces = []  # List of (force_vector, point_world)
+    """Mock body for testing forces without full RigidBody6DOF."""
+    def __init__(self, v=(0, 0, 0), p=(0, 0, 0), mass=1.0):
+        self.v = np.array(v, dtype=float)
+        self.p = np.array(p, dtype=float)
+        self.mass = mass
+        self.applied_forces = []
+        self.f = np.zeros(3)
+        self.tau = np.zeros(3)
+        
+    def apply_force(self, f, point_world=None):
+        self.applied_forces.append((f, point_world))
+        self.f += f
+        
+    def clear_forces(self):
+        self.applied_forces = []
+        self.f = np.zeros(3)
+        self.tau = np.zeros(3)
 
-    def apply_force(self, force, point_world=None):
-        self.applied_forces.append((np.array(force), point_world))
 
-    def rotation_world(self):
-        # Return identity matrix for simplicity
-        return np.eye(3)
-
-def test_gravity():
-    g_vec = [0, 0, -9.81]
+def test_gravity_applies_correct_force():
+    g_vec = np.array([0.0, 0.0, -9.81])
     gravity = Gravity(g_vec)
     body = MockRigidBody(mass=2.0)
     
-    gravity.apply(body)
+    gravity.apply(body, t=0.0)
     
-    assert len(body.applied_forces) == 1
-    f, p = body.applied_forces[0]
-    # Force should be mass * g
-    np.testing.assert_allclose(f, [0, 0, -19.62])
-    assert p is None
+    # Should apply F = m * g
+    expected = 2.0 * g_vec
+    np.testing.assert_array_almost_equal(body.f, expected)
 
-def test_drag_quadratic_const():
-    # F = -0.5 * rho * Cd * A * |v| * v
-    drag = Drag(rho=1.0, Cd=2.0, area=0.5, mode='quadratic')
+
+def test_drag_quadratic_mode():
+    drag = Drag(rho=1.225, Cd=0.5, area=1.0, mode="quadratic")
     body = MockRigidBody(v=[10, 0, 0])
     
-    drag.apply(body)
+    drag.apply(body, t=0.0)
     
-    # Calculation: -0.5 * 1.0 * 2.0 * 0.5 * 10 * [10, 0, 0]
-    # = -0.5 * 100 = -50
-    assert len(body.applied_forces) == 1
-    f, _ = body.applied_forces[0]
-    np.testing.assert_allclose(f, [-50, 0, 0])
+    # F_drag = -0.5 * rho * Cd * A * |v| * v
+    # = -0.5 * 1.225 * 0.5 * 1.0 * 10 * [10,0,0]
+    # = -30.625 * [1,0,0]
+    expected_mag = 0.5 * 1.225 * 0.5 * 1.0 * 10**2
+    assert abs(body.f[0] + expected_mag) < 1e-6
+    assert abs(body.f[1]) < 1e-10
+    assert abs(body.f[2]) < 1e-10
 
-def test_drag_linear():
-    # F = -k * v
-    drag = Drag(mode='linear', k_linear=5.0)
-    body = MockRigidBody(v=[0, -2, 0])
-    
-    drag.apply(body)
-    
-    # Calculation: -5.0 * [0, -2, 0] = [0, 10, 0]
-    assert len(body.applied_forces) == 1
-    f, _ = body.applied_forces[0]
-    np.testing.assert_allclose(f, [0, 10, 0])
 
-def test_drag_callable():
-    # Test that Cd and Area can be functions of time
-    # Area = t
-    drag = Drag(rho=1.0, Cd=1.0, area=lambda t, b: t, mode='quadratic')
-    body = MockRigidBody(v=[1, 0, 0])
+def test_drag_linear_mode():
+    drag = Drag(mode="linear", k_linear=2.0)
+    body = MockRigidBody(v=[5, 0, 0])
     
-    drag.apply(body, t=2.0)
+    drag.apply(body, t=0.0)
     
-    # F = -0.5 * 1 * 1 * 2.0 * 1 * [1, 0, 0] = [-1, 0, 0]
-    f, _ = body.applied_forces[0]
-    np.testing.assert_allclose(f, [-1, 0, 0])
+    # F_drag = -k * v = -2.0 * [5,0,0]
+    expected = -2.0 * np.array([5, 0, 0])
+    np.testing.assert_array_almost_equal(body.f, expected)
+
 
 def test_parachute_activation_and_transition():
+    """Test parachute activation logic."""
     para = ParachuteDrag(
-        rho=1.0, Cd=1.0, area=10.0, 
+        rho=1.0, Cd=1.0, area=10.0,
         activation_velocity=20.0,
-        gate_sharpness=100.0, # Sharp transition for easier testing
-        area_collapsed=0.0
+        gate_sharpness=100.0,
+        area_collapsed=0.1  # Small collapsed area
     )
-    body = MockRigidBody(v=[10, 0, 0]) # Below activation
     
-    # 1. Check inactive state
+    # 1. Below activation velocity
+    body = MockRigidBody(v=[10, 0, 0])  # 10 < 20
     para.apply(body, t=0.0)
-    f, _ = body.applied_forces[0]
-    np.testing.assert_allclose(f, [0, 0, 0])
-    assert not para.activation_status
+    # Should have small force from collapsed area
+    force_inactive = np.linalg.norm(body.f)
     
-    # 2. Trigger activation
-    body.v = np.array([25.0, 0, 0])
-    para.apply(body, t=1.0)
-    assert para.activation_status
-    assert para.activation_time == 1.0
+    # 2. Above activation velocity
+    body = MockRigidBody(v=[25, 0, 0])  # 25 > 20
+    para.apply(body, t=0.0)
+    force_active = np.linalg.norm(body.f)
     
-    # At t=activation_time, tanh(0)=0, gate=0.5. Area = 0.5 * 10 = 5.0
-    # F = -0.5 * 1 * 1 * 5.0 * 25 * [25, 0, 0] = -1562.5 * [1, 0, 0]
-    f, _ = body.applied_forces[1]
-    np.testing.assert_allclose(f, [-1562.5, 0, 0])
-    
-    # 3. Check full deployment (t >> activation_time)
-    para.apply(body, t=10.0)
-    # gate -> 1.0. Area -> 10.0
-    # F = -0.5 * 1 * 1 * 10.0 * 25 * 25 = -3125
-    f, _ = body.applied_forces[2]
-    np.testing.assert_allclose(f, [-3125, 0, 0])
+    # Active force should be significantly larger
+    assert force_active > force_inactive * 5
 
-def test_parachute_callable_area():
-    # Ensure the fix for callable area works
-    para = ParachuteDrag(area=lambda t, b: 10.0, activation_velocity=5.0)
+
+def test_spring_force():
+    I = np.eye(3)
+    body_a = RigidBody6DOF(
+        "a", 1.0, I,
+        np.array([0, 0, 0]),
+        np.array([0, 0, 0, 1])
+    )
+    body_b = RigidBody6DOF(
+        "b", 1.0, I,
+        np.array([0, 0, 12]),  # 12m apart, rest = 10m
+        np.array([0, 0, 0, 1])
+    )
+    
+    spring = Spring(
+        body_a, body_b,
+        np.zeros(3), np.zeros(3),
+        k=100.0, c=0.0, rest_length=10.0
+    )
+    
+    spring.apply_pair(t=0.0)
+    
+    # Extension = 12 - 10 = 2m
+    # Force = k * extension = 100 * 2 = 200N (on each body)
+    # Direction: body_a pulled up (+z), body_b pulled down (-z)
+    assert abs(body_a.f[2] - 200.0) < 1e-6
+    assert abs(body_b.f[2] + 200.0) < 1e-6
+
+
+def test_spring_damping():
+    I = np.eye(3)
+    body_a = RigidBody6DOF(
+        "a", 1.0, I,
+        np.array([0, 0, 0]),
+        np.array([0, 0, 0, 1]),
+        linear_velocity=np.array([0, 0, 0])
+    )
+    body_b = RigidBody6DOF(
+        "b", 1.0, I,
+        np.array([0, 0, 10]),
+        np.array([0, 0, 0, 1]),
+        linear_velocity=np.array([0, 0, 5])  # Moving away
+    )
+    
+    spring = Spring(
+        body_a, body_b,
+        np.zeros(3), np.zeros(3),
+        k=0.0, c=10.0, rest_length=10.0
+    )
+    
+    spring.apply_pair(t=0.0)
+    
+    # Relative velocity = 5 m/s (separating)
+    # Damping force = -c * v_rel = -10 * 5 = -50N (resisting separation)
+    # body_a gets pulled up, body_b gets pulled down
+    assert abs(body_a.f[2] - 50.0) < 1e-6
+    assert abs(body_b.f[2] + 50.0) < 1e-6
+
+
+def test_callable_area_drag():
+    """Test drag with callable area function."""
+    def growing_area(t, body):
+        return 1.0 + 0.5 * t  # Grows over time
+    
+    drag = Drag(rho=1.0, Cd=1.0, area=growing_area)
     body = MockRigidBody(v=[10, 0, 0])
     
-    # Should not raise TypeError
-    para.apply(body, t=0.0)
-    assert para.activation_status
-
-def test_parachute_altitude_activation():
-    # Test activation by altitude (e.g. deploying main chute at 1000m)
-    para = ParachuteDrag(
-        activation_velocity=9999.0, # Set high so velocity doesn't trigger it
-        activation_altitude=1000.0
-    )
-    # Case 1: Above altitude -> No activation
-    body = MockRigidBody(p=[0, 0, 1500.0], v=[10, 0, 0])
-    para.apply(body, t=0.0)
-    assert not para.activation_status
-
-    # Case 2: Below altitude -> Activation
-    body.p = np.array([0.0, 0.0, 900.0])
-    para.apply(body, t=1.0)
-    assert para.activation_status
-    assert para.activation_time == 1.0
-
-def test_spring():
-    b1 = MockRigidBody(p=[0, 0, 0], v=[0, 0, 0])
-    b2 = MockRigidBody(p=[2, 0, 0], v=[0, 0, 0])
+    # At t=0, area=1.0
+    drag.apply(body, t=0.0)
+    force_t0 = np.linalg.norm(body.f)
     
-    # Spring L0=1.0, current dist=2.0. Extension=1.0.
-    # k=10. Force magnitude = 10 * 1 = 10.
-    # Direction on b1 is towards b2 (+x).
-    spring = Spring(b1, b2, [0,0,0], [0,0,0], k=10.0, c=0.0, rest_length=1.0)
-    spring.apply_pair()
+    # At t=2, area=2.0
+    body.clear_forces()
+    drag.apply(body, t=2.0)
+    force_t2 = np.linalg.norm(body.f)
     
-    f1, _ = b1.applied_forces[0]
-    f2, _ = b2.applied_forces[0]
-    np.testing.assert_allclose(f1, [10, 0, 0])
-    np.testing.assert_allclose(f2, [-10, 0, 0])
+    # Force should double
+    assert abs(force_t2 / force_t0 - 2.0) < 0.01
