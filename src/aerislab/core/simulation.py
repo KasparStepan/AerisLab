@@ -486,6 +486,9 @@ class World:
         - Auto-generates plots if enabled
         """
         sol = solver.integrate(self, t_end)
+
+        if self.logger is not None:
+            self.logger.flush()
         
         # Auto-generate plots if requested
         if self._auto_save_plots and self.logger is not None:

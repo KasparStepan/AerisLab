@@ -102,6 +102,10 @@ def plot_trajectory_3d(
     # Get position components
     p = {k: f"{body_name}.{k}" for k in ["p_x", "p_y", "p_z"]}
     px, py, pz = _get_components(cols, [p["p_x"], p["p_y"], p["p_z"]])
+
+    if len(px) == 0:
+        print(f"Warning: No trajectory data found for {body_name}")
+        return
     
     # Create 3D plot
     fig = plt.figure(figsize=figsize)
