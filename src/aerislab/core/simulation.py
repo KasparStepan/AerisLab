@@ -11,6 +11,9 @@ from collections.abc import Callable
 from datetime import datetime
 from pathlib import Path
 
+# Import System type for type hints (avoid circular import)
+from typing import TYPE_CHECKING
+
 import numpy as np
 from numpy.typing import NDArray
 
@@ -18,6 +21,9 @@ from aerislab.dynamics.body import RigidBody6DOF
 from aerislab.dynamics.constraints import Constraint
 from aerislab.dynamics.forces import Gravity, Spring
 from aerislab.logger import CSVLogger
+
+if TYPE_CHECKING:
+    from aerislab.components.system import System as SystemType
 
 from .solver import HybridIVPSolver, HybridSolver
 
@@ -135,6 +141,9 @@ class World:
 
         # Dictionary to store separate force components for the current step
         self.force_breakdown: dict[str, NDArray] = {}
+
+        # System-level management (component architecture)
+        self.systems: list[SystemType] = []
 
         # Enable logging if name provided
         if simulation_name is not None:
@@ -351,6 +360,49 @@ class World:
         """
         self.termination_callback = fn
 
+    def add_system(self, system: SystemType) -> None:
+        """
+        Add a multi-component system.
+
+        Automatically registers all bodies and constraints from the system.
+        Components manage their own forces via the System interface.
+
+        Parameters
+        ----------
+        system : System
+            Multi-component system with bodies and constraints
+
+        Notes
+        -----
+        This is the preferred way to add complex assemblies like
+        parachute-payload systems. The System handles component state
+        updates and force application.
+
+        Examples
+        --------
+        >>> from aerislab.components import System, Payload, Parachute
+        >>> system = System("recovery_system")
+        >>> system.add_component(Payload(...))
+        >>> system.add_component(Parachute(...))
+        >>> world.add_system(system)
+        """
+
+        self.systems.append(system)
+
+        # Register all bodies from the system
+        for component in system.components:
+            self.add_body(component.body)
+
+        # Register all constraints from the system
+        for constraint in system.constraints:
+            self.add_constraint(constraint)
+
+        print(
+            f"[World] Added system '{system.name}' with "
+            f"{len(system.components)} components, "
+            f"{len(system.constraints)} constraints"
+        )
+
     # --- Fixed-Step Integration ---
 
     def step(self, solver: HybridSolver, dt: float) -> bool:
@@ -386,7 +438,16 @@ class World:
 
         self.force_breakdown.clear()
 
+        # 1.5) Update component states (deployment, actuation, etc.)
+        for system in self.systems:
+            system.update_all_states(self.t, dt)
+
         # 2) Apply forces
+        # 2a) Apply system component forces
+        for system in self.systems:
+            system.apply_all_forces(self.t)
+
+        # 2b) Apply per-body forces (non-component bodies)
         for b in self.bodies:
             for fb in b.per_body_forces:
                 fb.apply(b, self.t)
