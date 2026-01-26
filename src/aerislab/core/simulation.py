@@ -131,6 +131,9 @@ class World:
         self.output_path: Optional[Path] = None
         self.logger: Optional[CSVLogger] = None
         
+        # Dictionary to store separate force components for the current step
+        self.force_breakdown: dict[str, NDArray] = {}
+        
         # Enable logging if name provided
         if simulation_name is not None:
             self.enable_logging(simulation_name)
@@ -378,14 +381,24 @@ class World:
         # 1) Clear per-body force accumulators
         for b in self.bodies:
             b.clear_forces()
+        
+        self.force_breakdown.clear()
 
         # 2) Apply forces
         for b in self.bodies:
             for fb in b.per_body_forces:
                 fb.apply(b, self.t)
+                # Capture force if the object exposes it
+                if hasattr(fb, "last_force"):
+                    self.force_breakdown[f"{b.name}_{type(fb).__name__}"] = fb.last_force.copy()
+
         for fg in self.global_forces:
             for b in self.bodies:
                 fg.apply(b, self.t)
+                # Capture global force (requires apply() to update last_force per body)
+                if hasattr(fg, "last_force"):
+                    self.force_breakdown[f"{b.name}_{type(fg).__name__}"] = fg.last_force.copy()
+
         for fpair in self.interaction_forces:
             fpair.apply_pair(self.t)
 
