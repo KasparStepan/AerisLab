@@ -1,7 +1,7 @@
-import numpy as np
 import matplotlib.pyplot as plt
+import numpy as np
 from matplotlib.animation import FuncAnimation
-from matplotlib.widgets import Slider, Button
+from matplotlib.widgets import Button, Slider
 
 # 1. Physics Setup
 g = 9.81
@@ -48,7 +48,8 @@ def anim_update(frame):
     global current_t
     if not is_manual:
         current_t += (t_max / 200) # Increment time
-        if current_t > t_max: current_t = 0
+        if current_t > t_max:
+            current_t = 0
         update_plot(current_t)
     return point,
 

@@ -1,5 +1,6 @@
 import numpy as np
-from aerislab.core import World, HybridSolver
+
+from aerislab.core import HybridSolver, World
 from aerislab.dynamics.body import RigidBody6DOF
 from aerislab.dynamics.forces import Gravity
 from aerislab.dynamics.joints import RigidTetherJoint

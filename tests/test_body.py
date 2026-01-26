@@ -1,6 +1,8 @@
 import numpy as np
 import pytest
+
 from aerislab.dynamics.body import RigidBody6DOF
+
 
 @pytest.fixture
 def body_default():
@@ -32,7 +34,7 @@ def test_initialization_with_velocity():
     v = np.array([1.0, 2.0, 3.0])
     w = np.array([0.1, 0.2, 0.3])
     b = RigidBody6DOF("moving", mass, I, p, q, linear_velocity=v, angular_velocity=w)
-    
+
     assert np.allclose(b.v, v)
     assert np.allclose(b.w, w)
 
@@ -55,7 +57,7 @@ def test_rotation_world_90z():
     val = 1.0 / np.sqrt(2.0)
     q = np.array([0.0, 0.0, val, val])
     b = RigidBody6DOF("rot", 1.0, np.eye(3), np.zeros(3), q)
-    
+
     R = b.rotation_world()
     # Expected rotation matrix for 90 deg about Z:
     # [[0, -1, 0], [1, 0, 0], [0, 0, 1]]
@@ -79,7 +81,7 @@ def test_inertia_world_rotated():
     q = np.array([val, 0.0, 0.0, val])
     I_body = np.diag([1.0, 2.0, 3.0])
     b = RigidBody6DOF("rot", 1.0, I_body, np.zeros(3), q)
-    
+
     # R_x(90) = [[1,0,0],[0,0,-1],[0,1,0]]
     # I_world = R I R^T
     # Result should swap I_yy and I_zz in the diagonal frame
@@ -107,7 +109,7 @@ def test_apply_force_with_torque(body_default):
     # r = (0,1,0). tau = r x f = (0,1,0)x(5,0,0) = (0, 0, -5)
     pt = np.array([0.0, 1.0, 0.0])
     body_default.apply_force(f, point_world=pt)
-    
+
     assert np.allclose(body_default.f, f)
     assert np.allclose(body_default.tau, np.array([0.0, 0.0, -5.0]))
 
@@ -116,11 +118,11 @@ def test_integrate_semi_implicit(body_default):
     dt = 0.1
     a_lin = np.array([10.0, 0.0, 0.0])
     a_ang = np.array([0.0, 0.0, 0.0])
-    
+
     # v_new = 0 + 10*0.1 = 1.0
     # p_new = 0 + 1.0*0.1 = 0.1
     b.integrate_semi_implicit(dt, a_lin, a_ang)
-    
+
     assert np.allclose(b.v, [1.0, 0.0, 0.0])
     assert np.allclose(b.p, [0.1, 0.0, 0.0])
     assert np.allclose(b.q, [0.0, 0.0, 0.0, 1.0]) # No rotation
@@ -132,7 +134,7 @@ def test_integrate_semi_implicit_rotation(body_default):
     a_ang = np.array([0.0, 0.0, 10.0]) # alpha
     b.integrate_semi_implicit(dt, a_lin, a_ang)
     assert np.allclose(b.w, [0.0, 0.0, 1.0])
-    
+
     # qdot = 0.5 * q * [0, 0, 1, 0] (scalar-last pure vector)
     # q = [0, 0, 0, 1]
     # qdot = 0.5 * [0, 0, 1, 0] = [0, 0, 0.5, 0]

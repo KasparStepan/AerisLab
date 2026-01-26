@@ -1,6 +1,7 @@
 import numpy as np
 import pytest
-from aerislab.core import World, HybridIVPSolver
+
+from aerislab.core import HybridIVPSolver, World
 from aerislab.dynamics.body import RigidBody6DOF
 from aerislab.dynamics.forces import Gravity
 

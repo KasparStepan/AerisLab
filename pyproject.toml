@@ -96,14 +96,19 @@ select = [
 ]
 ignore = [
     "E501",  # line too long (handled by formatter)
+    "N806",  # variable in function should be lowercase (physics: I, J, F, M)
+    "E741",  # ambiguous variable name (physics: I for inertia, l for length)
+    "N803",  # argument name should be lowercase (physics: Cd, I_body)
 ]
 
 [tool.ruff.lint.per-file-ignores]
 "__init__.py" = ["F401"]  # Allow unused imports
+"tests/**" = ["F841", "N802"]  # Allow unused variables and physics function names (e.g., test_eval_and_J)
+"scripts/**" = ["F841"]  # Allow unused variables in scripts
 
 [tool.mypy]
 python_version = "3.10"
-warn_return_any = true
+warn_return_any = false  # Disabled: numpy operations trigger false positives
 warn_unused_configs = true
 disallow_untyped_defs = false
 ignore_missing_imports = true

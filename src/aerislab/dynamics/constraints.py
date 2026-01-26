@@ -1,6 +1,7 @@
 from __future__ import annotations
+
 import numpy as np
-from typing import List, Tuple
+
 from .body import RigidBody6DOF
 
 Array = np.ndarray
@@ -20,7 +21,7 @@ def skew(v: Array) -> Array:
 class Constraint:
     """Abstract base for constraints used in KKT solve."""
     def rows(self) -> int: raise NotImplementedError
-    def index_map(self) -> List[int]: raise NotImplementedError  # body indices in world order
+    def index_map(self) -> list[int]: raise NotImplementedError  # body indices in world order
     def evaluate(self) -> Array: raise NotImplementedError       # C(q)
     def jacobian(self) -> Array: raise NotImplementedError       # J such that Cdot = J v_g (v_g stacks [v, w] per-body)
 
@@ -40,7 +41,7 @@ class DistanceConstraint(Constraint):
     """
     def __init__(
         self,
-        world_bodies: List[RigidBody6DOF],
+        world_bodies: list[RigidBody6DOF],
         body_i: int,
         body_j: int,
         attach_i_local: Array,
@@ -55,11 +56,13 @@ class DistanceConstraint(Constraint):
         self.L = float(length)
 
     def rows(self) -> int: return 1
-    def index_map(self) -> List[int]: return [self.i, self.j]
+    def index_map(self) -> list[int]: return [self.i, self.j]
 
-    def _geom(self) -> Tuple[Array, Array, Array, Array, Array]:
-        bi = self.bodies[self.i]; bj = self.bodies[self.j]
-        Ri = bi.rotation_world(); Rj = bj.rotation_world()
+    def _geom(self) -> tuple[Array, Array, Array, Array, Array]:
+        bi = self.bodies[self.i]
+        bj = self.bodies[self.j]
+        Ri = bi.rotation_world()
+        Rj = bj.rotation_world()
         ri_w = Ri @ self.ri_local
         rj_w = Rj @ self.rj_local
         pi = bi.p + ri_w
@@ -92,7 +95,7 @@ class PointWeldConstraint(Constraint):
     """
     def __init__(
         self,
-        world_bodies: List[RigidBody6DOF],
+        world_bodies: list[RigidBody6DOF],
         body_i: int,
         body_j: int,
         attach_i_local: Array,
@@ -105,11 +108,13 @@ class PointWeldConstraint(Constraint):
         self.rj_local = np.asarray(attach_j_local, dtype=np.float64)
 
     def rows(self) -> int: return 3
-    def index_map(self) -> List[int]: return [self.i, self.j]
+    def index_map(self) -> list[int]: return [self.i, self.j]
 
     def _geom(self):
-        bi = self.bodies[self.i]; bj = self.bodies[self.j]
-        Ri = bi.rotation_world(); Rj = bj.rotation_world()
+        bi = self.bodies[self.i]
+        bj = self.bodies[self.j]
+        Ri = bi.rotation_world()
+        Rj = bj.rotation_world()
         ri_w = Ri @ self.ri_local
         rj_w = Rj @ self.rj_local
         pi = bi.p + ri_w

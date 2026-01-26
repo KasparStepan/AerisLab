@@ -12,11 +12,15 @@ Physical units:
 - Densities: kilograms per cubic meter [kg/m³]
 """
 from __future__ import annotations
+
+import warnings
+from collections.abc import Callable
+from typing import Protocol
+
 import numpy as np
 from numpy.typing import NDArray
-from typing import Callable, Protocol
+
 from .body import RigidBody6DOF
-import warnings
 
 # Physical constants
 EPSILON_VELOCITY = 1e-12  # Minimum velocity magnitude for drag calculations
@@ -32,7 +36,7 @@ class Force(Protocol):
     def apply(self, body: RigidBody6DOF, t: float | None = None) -> None:
         """
         Apply force to a rigid body.
-        
+
         Parameters
         ----------
         body : RigidBody6DOF
@@ -46,16 +50,16 @@ class Force(Protocol):
 class Gravity:
     """
     Uniform gravitational force.
-    
+
     Applies constant gravitational acceleration to body's center of mass.
     Force: F = m * g
-    
+
     Parameters
     ----------
     g : NDArray[np.float64]
         Gravitational acceleration vector in world frame [m/s²] (3,)
         Standard Earth gravity: [0, 0, -9.81]
-        
+
     Examples
     --------
     >>> gravity = Gravity(np.array([0.0, 0.0, -9.81]))
@@ -74,14 +78,14 @@ class Gravity:
 class Drag:
     """
     Aerodynamic drag force in world frame.
-    
+
     Supports two drag models:
     - 'quadratic': F = -0.5 * ρ * Cd * A * |v| * v  (standard aerodynamic drag)
     - 'linear': F = -k * v  (Stokes drag for low Reynolds number)
-    
+
     Parameters are runtime-modifiable to support time-varying configurations
     (e.g., parachute deployment, variable area).
-    
+
     Parameters
     ----------
     rho : float
@@ -95,17 +99,17 @@ class Drag:
         Drag model: 'quadratic' (default) or 'linear'
     k_linear : float
         Linear drag coefficient for mode='linear' [N·s/m]
-        
+
     Notes
     -----
     Force is applied at body center of mass (no induced torque).
     For asymmetric bodies, consider using apply_force with point_world.
-    
+
     Examples
     --------
     >>> # Constant drag on a sphere
     >>> drag = Drag(rho=1.225, Cd=0.47, area=np.pi * 0.1**2)
-    >>> 
+    >>>
     >>> # Time-varying parachute area
     >>> def area_func(t, body):
     ...     return 5.0 * min(1.0, t / 2.0)  # Deploy over 2 seconds
@@ -125,7 +129,7 @@ class Drag:
             raise ValueError(f"Mode must be 'quadratic' or 'linear', got '{mode}'")
         if mode == "linear" and k_linear < 0:
             raise ValueError(f"Linear drag coefficient must be non-negative, got {k_linear}")
-            
+
         self.rho = float(rho)
         self.Cd = Cd
         self.area = area
@@ -139,7 +143,7 @@ class Drag:
     def apply(self, body: RigidBody6DOF, t: float | None = None) -> None:
         """
         Apply drag force to body center of mass.
-        
+
         Parameters
         ----------
         body : RigidBody6DOF
@@ -150,31 +154,31 @@ class Drag:
         tval = 0.0 if t is None else float(t)
         v = body.v
         speed = np.linalg.norm(v)
-        
+
         if speed < EPSILON_VELOCITY:
             return  # No drag for stationary body
-        
+
         if self.mode == "quadratic":
             Cd = self._value(self.Cd, tval, body)
             A = self._value(self.area, tval, body)
-            
+
             # F = -0.5 * ρ * Cd * A * |v| * v
             f = -0.5 * self.rho * Cd * A * speed * v
             body.apply_force(f)
-            
+
         elif self.mode == "linear":
             # F = -k * v
             body.apply_force(-self.k_linear * v)
 
-        
+
 class ParachuteDrag(Drag):
     """
     Specialized drag force for parachute systems with state-based deployment.
-    
+
     Extends Drag with activation logic and smooth area transition for numerical stability
     with stiff IVP solvers. Parachute activates when velocity or altitude thresholds
     are exceeded, then smoothly transitions from collapsed to deployed state.
-    
+
     Parameters
     ----------
     rho : float
@@ -197,20 +201,20 @@ class ParachuteDrag(Drag):
     area_collapsed : float
         Parachute area when collapsed [m²]. Small non-zero value for numerical stability.
         Default: 1e-3 m²
-        
+
     Notes
     -----
     The smooth transition uses a hyperbolic tangent gate function:
         A(t) = A_collapsed + 0.5 * (1 + tanh(k * (t - t_deploy))) * (A_deployed - A_collapsed)
-    
+
     This ensures continuous derivatives for stiff IVP solvers while approximating
     a sharp deployment.
-    
+
     Examples
     --------
     >>> # Deploy at 50 m/s descent velocity
     >>> para = ParachuteDrag(rho=1.225, Cd=1.5, area=10.0, activation_velocity=50.0)
-    >>> 
+    >>>
     >>> # Deploy at 1000m altitude or 40 m/s, whichever comes first
     >>> para = ParachuteDrag(
     ...     rho=1.225, Cd=1.6, area=15.0,
@@ -231,7 +235,7 @@ class ParachuteDrag(Drag):
         area_collapsed: float = DEFAULT_COLLAPSED_AREA,
     ) -> None:
         super().__init__(rho=rho, Cd=Cd, area=area, mode=mode)
-        
+
         self.activation_time = float(activation_time)
         self.activation_altitude = (None if activation_altitude is None
                                    else float(activation_altitude))
@@ -239,19 +243,19 @@ class ParachuteDrag(Drag):
         self.activation_status = False
         self.gate_sharpness = float(gate_sharpness)
         self.area_collapsed = float(area_collapsed)
-        
+
         # Validation
         if self.gate_sharpness <= 0:
             raise ValueError(f"Gate sharpness must be positive, got {gate_sharpness}")
         if self.area_collapsed < 0:
             raise ValueError(f"Collapsed area must be non-negative, got {area_collapsed}")
-        
-    def apply(self, body: RigidBody6DOF, t: float | None = None) -> None:    
+
+    def apply(self, body: RigidBody6DOF, t: float | None = None) -> None:
         """
         Apply parachute drag with activation logic.
-        
+
         Checks deployment conditions and applies smooth drag force transition.
-        
+
         Parameters
         ----------
         body : RigidBody6DOF
@@ -262,10 +266,10 @@ class ParachuteDrag(Drag):
         tval = 0.0 if t is None else float(t)
         v = body.v
         v_mag = np.linalg.norm(v)
-        
+
         # Check activation conditions
         condition_vel = v_mag >= abs(self.activation_velocity)
-        condition_alt = (self.activation_altitude is not None and 
+        condition_alt = (self.activation_altitude is not None and
                         body.p[2] <= self.activation_altitude)
 
         if (condition_vel or condition_alt) and not self.activation_status:
@@ -276,10 +280,10 @@ class ParachuteDrag(Drag):
         if self.activation_status:
             if v_mag < EPSILON_VELOCITY:
                 return  # No drag at zero velocity
-                
+
             Cd = self._value(self.Cd, tval, body)
             A = self._eval_smooth_area(tval, body)
-            
+
             # Standard quadratic drag formula
             f = -0.5 * self.rho * Cd * A * v_mag * v
             body.apply_force(f)
@@ -287,23 +291,23 @@ class ParachuteDrag(Drag):
     def _eval_smooth_area(self, t: float, body: RigidBody6DOF) -> float:
         """
         Evaluate parachute area with smooth activation transition.
-        
+
         Uses hyperbolic tangent to create a smooth (but steep) transition
         from collapsed to deployed state. This ensures continuous derivatives
         for stiff IVP solvers.
-        
+
         Parameters
         ----------
         t : float
             Current time [s]
         body : RigidBody6DOF
             The body (for callable area evaluation)
-            
+
         Returns
         -------
         float
             Effective parachute area [m²]
-            
+
         Notes
         -----
         Gate function: g(t) = 0.5 * (1 + tanh(k * (t - t_deploy)))
@@ -313,13 +317,13 @@ class ParachuteDrag(Drag):
         """
         k = self.gate_sharpness
         A0 = self.area_collapsed
-        
+
         # Smooth gate function: 0 before deployment, 1 after
         gate = 0.5 * (1.0 + np.tanh(k * (t - self.activation_time)))
-        
+
         # Target deployed area (may be time-varying)
         target_area = self._value(self.area, t, body)
-        
+
         # Linear interpolation weighted by smooth gate
         return A0 + gate * (target_area - A0)
 
@@ -327,18 +331,18 @@ class ParachuteDrag(Drag):
 class Spring:
     """
     Soft spring connection between two rigid bodies (Hooke + viscous damping).
-    
+
     Models a deformable tether/spring between attachment points on two bodies.
     Not a rigid constraint - allows stretching with restoring force.
-    
+
     Force law:
         F = -k * (|d| - L₀) * d_hat - c * v_rel_line
-        
+
     where:
         d = separation vector from body B to body A attachment points
         d_hat = d / |d| (unit vector)
         v_rel_line = (v_A - v_B) · d_hat (relative velocity along line)
-    
+
     Parameters
     ----------
     body_a : RigidBody6DOF
@@ -355,14 +359,14 @@ class Spring:
         Damping coefficient [N·s/m]. Higher values → more damping.
     rest_length : float
         Natural (unstretched) length of spring [m]
-        
+
     Notes
     -----
     - Force is applied at attachment points (generates torques if offset from CoM)
     - Equal and opposite forces applied to both bodies (Newton's 3rd law)
     - Handles zero-length springs (attachment points coincident when L₀=0)
     - Uses minimum distance threshold to avoid singularities
-    
+
     Examples
     --------
     >>> # 5m tether between payload and parachute
@@ -389,7 +393,7 @@ class Spring:
             raise ValueError(f"Damping coefficient must be non-negative, got {c}")
         if rest_length < 0:
             raise ValueError(f"Rest length must be non-negative, got {rest_length}")
-            
+
         self.a = body_a
         self.b = body_b
         self.ra_local = np.asarray(attach_a_local, dtype=np.float64)
@@ -401,15 +405,15 @@ class Spring:
     def apply_pair(self, t: float | None = None) -> None:
         """
         Apply spring forces to both bodies.
-        
+
         Computes attachment point positions and velocities in world frame,
         then applies equal and opposite spring forces.
-        
+
         Parameters
         ----------
         t : float | None
             Current simulation time [s]. Not used but included for interface consistency.
-            
+
         Notes
         -----
         This method should be called once per timestep by the World orchestrator.
@@ -419,15 +423,15 @@ class Spring:
         Rb = self.b.rotation_world()
         ra_w = Ra @ self.ra_local
         rb_w = Rb @ self.rb_local
-        
+
         # World positions of attachment points
         pa = self.a.p + ra_w
         pb = self.b.p + rb_w
-        
+
         # Separation vector (A to B)
         d = pa - pb
         dist = np.linalg.norm(d)
-        
+
         if dist < EPSILON_DISTANCE:
             # Attachment points coincident - no force
             warnings.warn(
@@ -437,13 +441,13 @@ class Spring:
                 stacklevel=2
             )
             return
-        
+
         d_hat = d / dist
 
         # Velocities of attachment points in world frame
         va = self.a.v + np.cross(self.a.w, ra_w)
         vb = self.b.v + np.cross(self.b.w, rb_w)
-        
+
         # Relative velocity along spring line
         vrel = va - vb
         vrel_line = np.dot(vrel, d_hat)
@@ -452,7 +456,7 @@ class Spring:
         f_spring = -self.k * (dist - self.L0) * d_hat
         f_damping = -self.c * vrel_line * d_hat
         f = f_spring + f_damping
-        
+
         # Apply equal and opposite forces at attachment points
         self.a.apply_force(+f, point_world=pa)
         self.b.apply_force(-f, point_world=pb)

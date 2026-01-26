@@ -1,7 +1,7 @@
-import numpy as np
 import matplotlib.pyplot as plt
+import numpy as np
 from matplotlib.animation import FuncAnimation
-from matplotlib.widgets import Slider, Button
+from matplotlib.widgets import Button, Slider
 
 # 1. Physics Setup
 g = 9.81
@@ -12,7 +12,7 @@ dt_base = t_max / 200  # Time increment per frame
 
 # 2. Figure and Plot Setup
 fig, ax = plt.subplots(figsize=(10, 7))
-plt.subplots_adjust(bottom=0.35) 
+plt.subplots_adjust(bottom=0.35)
 
 # Draw the theoretical path (dashed line)
 t_path = np.linspace(0, t_max, 100)
@@ -54,12 +54,12 @@ def update_visuals(t):
     x = v0 * np.cos(theta) * t
     y = v0 * np.sin(theta) * t - 0.5 * g * t**2
     point.set_data([x], [y])
-    
+
     # Crucial: Temporarily disable slider events to prevent recursion crash
     s_time.eventson = False
     s_time.set_val(t)
     s_time.eventson = True
-    
+
     fig.canvas.draw_idle()
 
 def anim_step(frame):
@@ -68,11 +68,11 @@ def anim_step(frame):
     if not is_paused:
         # Progress time based on speed slider
         current_t += dt_base * s_speed.val
-        
+
         # Loop back to start if it hits the end
         if current_t >= t_max:
             current_t = 0
-            
+
         update_visuals(current_t)
     return point,
 

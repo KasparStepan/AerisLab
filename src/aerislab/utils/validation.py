@@ -5,15 +5,17 @@ Provides functions to validate inputs for physics simulations,
 ensuring physical consistency and numerical stability.
 """
 from __future__ import annotations
+
+import warnings
+
 import numpy as np
 from numpy.typing import NDArray
-import warnings
 
 
 def validate_positive(value: float, name: str, strict: bool = True) -> None:
     """
     Validate that a scalar value is positive.
-    
+
     Parameters
     ----------
     value : float
@@ -22,7 +24,7 @@ def validate_positive(value: float, name: str, strict: bool = True) -> None:
         Parameter name for error messages
     strict : bool
         If True, raise ValueError. If False, issue warning.
-        
+
     Raises
     ------
     ValueError
@@ -45,14 +47,14 @@ def validate_non_negative(value: float, name: str) -> None:
 def validate_quaternion(q: NDArray[np.float64], tol: float = 1e-6) -> None:
     """
     Validate that array is a unit quaternion.
-    
+
     Parameters
     ----------
     q : NDArray[np.float64]
         Quaternion [x, y, z, w]
     tol : float
         Tolerance for unit norm check
-        
+
     Raises
     ------
     ValueError
@@ -60,7 +62,7 @@ def validate_quaternion(q: NDArray[np.float64], tol: float = 1e-6) -> None:
     """
     if q.shape != (4,):
         raise ValueError(f"Quaternion must have shape (4,), got {q.shape}")
-    
+
     norm = np.linalg.norm(q)
     if abs(norm - 1.0) > tol:
         warnings.warn(
@@ -74,12 +76,12 @@ def validate_quaternion(q: NDArray[np.float64], tol: float = 1e-6) -> None:
 def validate_inertia_tensor(I: NDArray[np.float64]) -> None:
     """
     Validate inertia tensor is 3x3 and positive definite.
-    
+
     Parameters
     ----------
     I : NDArray[np.float64]
         Inertia tensor (3, 3)
-        
+
     Raises
     ------
     ValueError
@@ -87,7 +89,7 @@ def validate_inertia_tensor(I: NDArray[np.float64]) -> None:
     """
     if I.shape != (3, 3):
         raise ValueError(f"Inertia tensor must be 3x3, got shape {I.shape}")
-    
+
     # Check symmetry
     if not np.allclose(I, I.T):
         warnings.warn(
@@ -95,7 +97,7 @@ def validate_inertia_tensor(I: NDArray[np.float64]) -> None:
             RuntimeWarning,
             stacklevel=2
         )
-    
+
     # Check positive definiteness
     eigenvalues = np.linalg.eigvals(I)
     if np.any(eigenvalues <= 0):
@@ -108,14 +110,14 @@ def validate_inertia_tensor(I: NDArray[np.float64]) -> None:
 def validate_timestep(dt: float, max_dt: float = 1.0) -> None:
     """
     Validate timestep is positive and reasonable.
-    
+
     Parameters
     ----------
     dt : float
         Time step [s]
     max_dt : float
         Maximum reasonable timestep [s]
-        
+
     Raises
     ------
     ValueError

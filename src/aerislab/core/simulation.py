@@ -5,19 +5,21 @@ Manages bodies, forces, constraints, and time integration with optional
 logging and automatic output organization.
 """
 from __future__ import annotations
+
+import warnings
+from collections.abc import Callable
+from datetime import datetime
+from pathlib import Path
+
 import numpy as np
 from numpy.typing import NDArray
-from typing import Callable, List, Optional
-from pathlib import Path
-from datetime import datetime
-import warnings
 
 from aerislab.dynamics.body import RigidBody6DOF
-from aerislab.dynamics.forces import Gravity, Drag, Spring
 from aerislab.dynamics.constraints import Constraint
-from .solver import HybridSolver, HybridIVPSolver
+from aerislab.dynamics.forces import Gravity, Spring
 from aerislab.logger import CSVLogger
 
+from .solver import HybridIVPSolver, HybridSolver
 
 # Default output directory
 DEFAULT_OUTPUT_DIR = Path("output")
@@ -27,10 +29,10 @@ EPSILON_GROUND = 1e-9  # Tolerance for ground detection
 class World:
     """
     Container and orchestrator for multi-body dynamics simulation.
-    
+
     Manages rigid bodies, forces, constraints, time evolution, and optional
     data logging with automatic output organization.
-    
+
     Parameters
     ----------
     ground_z : float
@@ -50,7 +52,7 @@ class World:
     auto_save_plots : bool
         If True, automatically generate and save plots when simulation completes.
         Only works if logging is enabled.
-        
+
     Attributes
     ----------
     bodies : List[RigidBody6DOF]
@@ -69,13 +71,13 @@ class World:
         Data logger instance, or None if logging disabled
     output_path : Path | None
         Path to simulation output directory
-        
+
     Notes
     -----
     **Termination Logic:**
     By default, simulation stops when the payload body crosses ground_z going downward.
     Override with set_termination_callback() for custom termination conditions.
-    
+
     **Output Organization:**
     When logging is enabled, creates:
         output_dir/
@@ -86,7 +88,7 @@ class World:
                     payload_traj.png
                     payload_vel_acc.png
                     ...
-    
+
     Examples
     --------
     >>> # Explicit logging (recommended)
@@ -95,7 +97,7 @@ class World:
     >>> # ... add bodies, forces, constraints ...
     >>> world.run(solver, duration=100.0, dt=0.01)
     >>> world.save_plots()  # Generate plots from logged data
-    
+
     >>> # Convenience factory with auto-logging
     >>> world = World.with_logging(
     ...     name="my_sim",
@@ -103,7 +105,7 @@ class World:
     ...     auto_save_plots=True  # Plots generated automatically
     ... )
     """
-    
+
     def __init__(
         self,
         ground_z: float = 0.0,
@@ -113,31 +115,31 @@ class World:
         auto_timestamp: bool = True,
         auto_save_plots: bool = False,
     ) -> None:
-        self.bodies: List[RigidBody6DOF] = []
-        self.global_forces: List = []
-        self.interaction_forces: List[Spring] = []
-        self.constraints: List[Constraint] = []
+        self.bodies: list[RigidBody6DOF] = []
+        self.global_forces: list = []
+        self.interaction_forces: list[Spring] = []
+        self.constraints: list[Constraint] = []
         self.payload_index = int(payload_index)
         self.ground_z = float(ground_z)
         self.t = 0.0
-        self.t_touchdown: Optional[float] = None
-        self.termination_callback: Optional[Callable[['World'], bool]] = None
-        
+        self.t_touchdown: float | None = None
+        self.termination_callback: Callable[[World], bool] | None = None
+
         # Output configuration
         self._simulation_name = simulation_name
         self._output_dir = Path(output_dir) if output_dir else DEFAULT_OUTPUT_DIR
         self._auto_timestamp = auto_timestamp
         self._auto_save_plots = auto_save_plots
-        self.output_path: Optional[Path] = None
-        self.logger: Optional[CSVLogger] = None
-        
+        self.output_path: Path | None = None
+        self.logger: CSVLogger | None = None
+
         # Dictionary to store separate force components for the current step
         self.force_breakdown: dict[str, NDArray] = {}
-        
+
         # Enable logging if name provided
         if simulation_name is not None:
             self.enable_logging(simulation_name)
-    
+
     @classmethod
     def with_logging(
         cls,
@@ -146,13 +148,13 @@ class World:
         payload_index: int = 0,
         output_dir: Path | str | None = None,
         auto_save_plots: bool = True,
-    ) -> 'World':
+    ) -> World:
         """
         Convenience factory to create World with logging pre-enabled.
-        
+
         This is the recommended way to create a World when you want automatic
         data logging and output organization.
-        
+
         Parameters
         ----------
         name : str
@@ -165,12 +167,12 @@ class World:
             Base output directory
         auto_save_plots : bool
             Automatically generate plots when simulation completes
-            
+
         Returns
         -------
         World
             Configured World instance with logging enabled
-            
+
         Examples
         --------
         >>> world = World.with_logging(
@@ -187,29 +189,29 @@ class World:
             auto_timestamp=True,
             auto_save_plots=auto_save_plots,
         )
-    
+
     def enable_logging(self, name: str | None = None) -> Path:
         """
         Enable data logging with automatic output organization.
-        
+
         Creates output directory structure and initializes CSV logger.
         Can be called at any time before or during simulation.
-        
+
         Parameters
         ----------
         name : str | None
             Simulation name. If None, uses name from __init__ or raises error.
-            
+
         Returns
         -------
         Path
             Path to the created output directory
-            
+
         Raises
         ------
         ValueError
             If no simulation name available
-            
+
         Notes
         -----
         Creates directory structure:
@@ -219,42 +221,42 @@ class World:
         """
         if name is not None:
             self._simulation_name = name
-            
+
         if self._simulation_name is None:
             raise ValueError(
                 "Simulation name required for logging. "
                 "Either pass name to __init__ or to enable_logging()."
             )
-        
+
         # Create output path with optional timestamp
         if self._auto_timestamp:
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
             folder_name = f"{self._simulation_name}_{timestamp}"
         else:
             folder_name = self._simulation_name
-        
+
         self.output_path = self._output_dir / folder_name
-        
+
         # Create directory structure
         logs_dir = self.output_path / "logs"
         plots_dir = self.output_path / "plots"
         logs_dir.mkdir(parents=True, exist_ok=True)
         plots_dir.mkdir(parents=True, exist_ok=True)
-        
+
         # Initialize logger
         csv_path = logs_dir / "simulation.csv"
         self.logger = CSVLogger(str(csv_path))
-        
+
         print(f"[World] Logging enabled: {self.output_path}")
         print(f"        Logs: {logs_dir}")
         print(f"        Plots: {plots_dir}")
-        
+
         return self.output_path
-    
+
     def disable_logging(self) -> None:
         """
         Disable logging and close any open log files.
-        
+
         Useful for performance testing or when you want to disable
         logging partway through a parameter study.
         """
@@ -264,11 +266,11 @@ class World:
             print("[World] Logging disabled")
 
     # --- Configuration Methods ---
-    
+
     def set_logger(self, logger: CSVLogger) -> None:
         """
         Set custom logger instance.
-        
+
         For advanced users who want custom logging behavior.
         Most users should use enable_logging() instead.
         """
@@ -283,12 +285,12 @@ class World:
     def add_body(self, body: RigidBody6DOF) -> int:
         """
         Add a rigid body to the simulation.
-        
+
         Parameters
         ----------
         body : RigidBody6DOF
             The body to add
-            
+
         Returns
         -------
         int
@@ -300,7 +302,7 @@ class World:
     def add_global_force(self, f) -> None:
         """
         Add force that applies to all bodies (e.g., gravity).
-        
+
         Parameters
         ----------
         f : Force
@@ -311,7 +313,7 @@ class World:
     def add_interaction_force(self, fpair: Spring) -> None:
         """
         Add pairwise interaction force (e.g., spring, tether).
-        
+
         Parameters
         ----------
         fpair : Spring
@@ -322,7 +324,7 @@ class World:
     def add_constraint(self, c: Constraint) -> None:
         """
         Add holonomic constraint (e.g., distance, weld joint).
-        
+
         Parameters
         ----------
         c : Constraint
@@ -330,16 +332,16 @@ class World:
         """
         self.constraints.append(c)
 
-    def set_termination_callback(self, fn: Callable[['World'], bool]) -> None:
+    def set_termination_callback(self, fn: Callable[[World], bool]) -> None:
         """
         Set custom termination condition.
-        
+
         Parameters
         ----------
         fn : Callable[[World], bool]
             Function that takes World and returns True to stop simulation.
             Called after each integration step.
-            
+
         Examples
         --------
         >>> # Stop when payload reaches specific altitude
@@ -350,23 +352,23 @@ class World:
         self.termination_callback = fn
 
     # --- Fixed-Step Integration ---
-    
+
     def step(self, solver: HybridSolver, dt: float) -> bool:
         """
         Advance simulation by one fixed time step.
-        
+
         Parameters
         ----------
         solver : HybridSolver
             Fixed-step solver instance
         dt : float
             Time step [s]
-            
+
         Returns
         -------
         bool
             True if termination condition met, False otherwise
-            
+
         Notes
         -----
         Performs:
@@ -381,7 +383,7 @@ class World:
         # 1) Clear per-body force accumulators
         for b in self.bodies:
             b.clear_forces()
-        
+
         self.force_breakdown.clear()
 
         # 2) Apply forces
@@ -430,13 +432,13 @@ class World:
                 # Already below ground
                 self.t_touchdown = self.t
                 stop = True
-                
+
         return stop
 
     def run(self, solver: HybridSolver, duration: float, dt: float) -> None:
         """
         Run fixed-step simulation for specified duration.
-        
+
         Parameters
         ----------
         solver : HybridSolver
@@ -445,7 +447,7 @@ class World:
             Simulation duration [s]
         dt : float
             Fixed time step [s]
-            
+
         Notes
         -----
         - Logs initial state before integration
@@ -453,11 +455,11 @@ class World:
         - Flushes logger and generates plots (if enabled) when complete
         """
         t_end = self.t + float(duration)
-        
+
         # Log initial state
         if self.logger is not None:
             self.logger.log(self)
-            
+
         try:
             while self.t < t_end:
                 if self.step(solver, dt):
@@ -469,30 +471,30 @@ class World:
             # Ensure data is written
             if self.logger:
                 self.logger.flush()
-            
+
             # Auto-generate plots if requested
             if self._auto_save_plots and self.logger is not None:
                 print("[World] Auto-generating plots...")
                 self.save_plots()
 
     # --- Variable-Step Integration ---
-    
+
     def integrate_to(self, solver: HybridIVPSolver, t_end: float):
         """
         Integrate with adaptive-step IVP solver.
-        
+
         Parameters
         ----------
         solver : HybridIVPSolver
             Variable-step solver
         t_end : float
             Final time [s]
-            
+
         Returns
         -------
         OdeResult
             scipy integration result object
-            
+
         Notes
         -----
         - Automatically logs trajectory at solver time points
@@ -502,16 +504,16 @@ class World:
 
         if self.logger is not None:
             self.logger.flush()
-        
+
         # Auto-generate plots if requested
         if self._auto_save_plots and self.logger is not None:
             print("[World] Auto-generating plots...")
             self.save_plots()
-        
+
         return sol
 
     # --- Plotting and Analysis ---
-    
+
     def save_plots(
         self,
         bodies: list[str] | None = None,
@@ -519,29 +521,29 @@ class World:
     ) -> None:
         """
         Generate and save standard analysis plots from logged data.
-        
+
         Creates trajectory, velocity/acceleration, and force plots for
         specified bodies. Automatically uses correct output directory.
-        
+
         Parameters
         ----------
         bodies : list[str] | None
             Body names to plot. If None, plots all bodies in simulation.
         show : bool
             If True, display plots interactively (blocks execution)
-            
+
         Raises
         ------
         RuntimeError
             If logging is not enabled or no data logged yet
-            
+
         Notes
         -----
         Generates for each body:
         - 3D trajectory plot
         - Velocity and acceleration time series
         - Force components time series
-        
+
         Examples
         --------
         >>> world.run(solver, duration=100.0, dt=0.01)
@@ -552,16 +554,16 @@ class World:
                 "Logging must be enabled to save plots. "
                 "Call enable_logging() or use World.with_logging()."
             )
-        
+
         from aerislab.visualization.plotting import (
+            plot_forces,
             plot_trajectory_3d,
             plot_velocity_and_acceleration,
-            plot_forces,
         )
-        
+
         csv_path = self.output_path / "logs" / "simulation.csv"
         plots_dir = self.output_path / "plots"
-        
+
         if not csv_path.exists():
             raise RuntimeError(
                 f"No log file found at {csv_path}. "
@@ -593,13 +595,13 @@ class World:
                 show=show,
                 magnitude=False
             )
-        
+
         print(f"[World] Plots saved to: {plots_dir}")
-    
+
     def get_energy(self) -> dict[str, float]:
         """
         Compute total system energy (diagnostic).
-        
+
         Returns
         -------
         dict[str, float]
@@ -607,19 +609,19 @@ class World:
             - 'kinetic': total kinetic energy [J]
             - 'potential': gravitational potential energy [J]
             - 'total': sum of kinetic and potential [J]
-            
+
         Notes
         -----
         Only accounts for gravity in potential energy.
         Useful for validating energy conservation in unconstrained systems.
-        
+
         Examples
         --------
         >>> energy = world.get_energy()
         >>> print(f"Total energy: {energy['total']:.2f} J")
         """
         KE = sum(b.kinetic_energy() for b in self.bodies)
-        
+
         # Potential energy (gravity only)
         PE = 0.0
         for fg in self.global_forces:
@@ -628,7 +630,7 @@ class World:
                     # PE = -m * g · r (relative to ground)
                     PE -= b.mass * np.dot(fg.g, b.p - np.array([0, 0, self.ground_z]))
                 break  # Only first gravity force
-        
+
         return {
             'kinetic': KE,
             'potential': PE,
