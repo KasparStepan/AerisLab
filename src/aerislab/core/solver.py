@@ -488,6 +488,18 @@ class HybridIVPSolver:
             # Clear and apply forces at time t
             for b in bodies:
                 b.clear_forces()
+
+            # Update component states (deployment, actuation, etc.)
+            # Note: dt is approximate since IVP solver uses variable steps
+            for system in world.systems:
+                system.update_all_states(t, 0.0)  # dt=0 for state-only update
+
+            # Apply component forces
+            for system in world.systems:
+                system.apply_all_forces(t)
+
+            # Apply per-body forces (non-component bodies)
+            for b in bodies:
                 for fb in b.per_body_forces:
                     fb.apply(b, t)
             for fg in world.global_forces:
