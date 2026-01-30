@@ -11,7 +11,7 @@ import numpy as np
 import pytest
 
 from aerislab.core.simulation import World
-from aerislab.core.solver import HybridSolver
+from aerislab.core.solver import HybridSolver, HybridIVPSolver
 from aerislab.dynamics.body import RigidBody6DOF
 from aerislab.dynamics.constraints import DistanceConstraint
 from aerislab.dynamics.forces import Gravity, Spring
@@ -73,17 +73,19 @@ class TestSimplePendulum:
         world.add_constraint(constraint)
         world.set_termination_callback(lambda w: False)
         
-        solver = HybridSolver(alpha=10.0, beta=2.0)
-        dt = 0.0001
+        solver = HybridIVPSolver(method="RK45", rtol=1e-6, atol=1e-6)
+        dt = 0.001
         
         # Find period by detecting zero crossings of x
         t = 0.0
         crossings = []
         x_prev = bob.p[0]
         
+        # We must loop manually to detect crossings, OR use dense output.
+        # Loop with integrate_to is fine.
         for _ in range(int(3 * T_analytical / dt)):  # Run for ~3 periods
-            world.step(solver, dt)
-            t += dt
+            world.integrate_to(solver, t + dt)
+            t = world.t # Sync time (should be t+dt)
             x_curr = bob.p[0]
             
             # Detect positive-going zero crossing
@@ -195,17 +197,19 @@ class TestSpringOscillator:
         # No gravity for pure spring oscillation
         
         spring = Spring(
-            body_i=anchor,
-            body_j=mass_body,
+            body_a=anchor,
+            body_b=mass_body,
+            attach_a_local=np.zeros(3),
+            attach_b_local=np.zeros(3),
             k=k,
             rest_length=0.0,
-            damping=0.0,
+            c=0.0,
         )
         world.add_interaction_force(spring)
         world.set_termination_callback(lambda w: False)
         
-        solver = HybridSolver(alpha=0, beta=0)
-        dt = 0.0001
+        solver = HybridIVPSolver(method="RK45", rtol=1e-6, atol=1e-6)
+        dt = 0.001  # Coarser check step is fine with precision integrator
         
         # Find period from zero crossings
         t = 0.0
@@ -213,11 +217,13 @@ class TestSpringOscillator:
         x_prev = mass_body.p[0]
         
         for _ in range(int(3 * T_analytical / dt)):
-            world.step(solver, dt)
-            t += dt
+            world.integrate_to(solver, t + dt)
+            t = world.t
             x_curr = mass_body.p[0]
             
             if x_prev < 0 and x_curr >= 0:
+                # Refine crossing time by linear interpolation if needed, 
+                # but simple check is usually enough if dt is small relative to T
                 crossings.append(t)
             
             x_prev = x_curr
@@ -256,22 +262,27 @@ class TestSpringOscillator:
         world.add_body(mass_body)
         
         spring = Spring(
-            body_i=anchor,
-            body_j=mass_body,
+            body_a=anchor,
+            body_b=mass_body,
+            attach_a_local=np.zeros(3),
+            attach_b_local=np.zeros(3),
             k=k,
             rest_length=0.0,
-            damping=0.0,
+            c=0.0,
         )
         world.add_interaction_force(spring)
         world.set_termination_callback(lambda w: False)
         
-        solver = HybridSolver(alpha=0, beta=0)
+        solver = HybridIVPSolver(method="RK45", rtol=1e-6, atol=1e-6)
         
         # Track max amplitude over several periods
         max_x = 0.0
-        for _ in range(10000):
-            world.step(solver, 0.0001)
-            max_x = max(max_x, abs(mass_body.p[0]))
+        t = 0.0
+        dt = 0.01
+        for _ in range(1000): # 10s
+             world.integrate_to(solver, t + dt)
+             t = world.t
+             max_x = max(max_x, abs(mass_body.p[0]))
         
         # Amplitude should be conserved
         rel_error = abs(max_x - A) / A

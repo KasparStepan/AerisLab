@@ -143,7 +143,7 @@ class TestDragDeceleration:
         
         # Linear drag: F = -b*v, where b = ½ρCdA * 2v_ref in linear mode
         # Approximate with custom drag coefficient
-        drag = Drag(rho=1.0, Cd=1.0, area=b, mode="linear")
+        drag = Drag(rho=1.0, Cd=1.0, area=1.0, mode="linear", k_linear=b)
         
         world = World(ground_z=-100, payload_index=0)
         world.add_body(body)

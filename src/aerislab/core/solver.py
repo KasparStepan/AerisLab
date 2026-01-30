@@ -104,9 +104,18 @@ def assemble_system(
 
     # Fill mass matrix, forces, and velocities
     for i, b in enumerate(bodies):
-        Wi = b.inv_mass_matrix_world()  # ← THIS IS THE CORRECT METHOD NAME!
+        Wi = b.inv_mass_matrix_world()
         Minv[6*i:6*i+6, 6*i:6*i+6] = Wi
-        F[6*i:6*i+6] = b.generalized_force()
+        
+        # Generalized force = External forces + Gyroscopic terms
+        # F_gyro = -w x (I @ w)
+        I_world = b.inertia_world()
+        tau_gyro = -np.cross(b.w, I_world @ b.w)
+        
+        F_gen = b.generalized_force()
+        F_gen[3:6] += tau_gyro
+        
+        F[6*i:6*i+6] = F_gen
         v[6*i:6*i+3] = b.v
         v[6*i+3:6*i+6] = b.w
 
@@ -484,6 +493,8 @@ class HybridIVPSolver:
             """Right-hand side function for ODE solver."""
             # Unpack state into bodies
             self._unpack_to_world(y, bodies)
+            for b in bodies:
+                b.q[:] = quat_normalize(b.q)
 
             # Clear and apply forces at time t
             for b in bodies:

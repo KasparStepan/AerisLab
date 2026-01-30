@@ -17,9 +17,18 @@ Future Modules
 - materials.py: Fabric properties, line stretch, porosity effects
 """
 
-# Placeholder for future development
-# from .aerodynamics import DragModel, AddedMassModel
-# from .deployment import InflationModel, ReefingSchedule
-# from .atmosphere import StandardAtmosphere, WindField
+from . import aerodynamics
+from .aerodynamics import (
+    AdvancedParachute,
+    create_parachute,
+    ParachuteGeometry,
+    ParachuteModelType,
+)
 
-__all__: list[str] = []
+__all__: list[str] = [
+    "aerodynamics",
+    "AdvancedParachute",
+    "create_parachute",
+    "ParachuteGeometry",
+    "ParachuteModelType",
+]

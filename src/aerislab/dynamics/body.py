@@ -77,9 +77,9 @@ def quat_derivative(q: NDArray[np.float64], omega: NDArray[np.float64]) -> NDArr
     qx, qy, qz, qw = q
     ox, oy, oz = omega
     return 0.5 * np.array([
-        qw*ox + qy*oz - qz*oy,
-        qw*oy - qx*oz + qz*ox,
-        qw*oz + qx*oy - qy*ox,
+        qw*ox + oy*qz - oz*qy,
+        qw*oy - ox*qz + oz*qx,
+        qw*oz + ox*qy - oy*qx,
         -qx*ox - qy*oy - qz*oz
     ], dtype=np.float64)
 

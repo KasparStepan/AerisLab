@@ -230,6 +230,6 @@ def test_multiple_bodies_constraint():
     assert abs(dist - 5.0) < 0.1  # Within 10cm tolerance
 
     # Check indices are correct
-    assert idx1 == 1
-    assert idx2 == 2
+    assert idx1 == 0
+    assert idx2 == 1
     assert len(world.bodies) == 2

@@ -156,11 +156,13 @@ class TestEnergyConservation:
         world.add_body(mass_body)
         
         spring = Spring(
-            body_i=anchor,
-            body_j=mass_body,
+            body_a=anchor,
+            body_b=mass_body,
+            attach_a_local=np.zeros(3),
+            attach_b_local=np.zeros(3),
             k=k,
             rest_length=0.0,
-            damping=0.0,
+            c=0.0,
         )
         world.add_interaction_force(spring)
         world.set_termination_callback(lambda w: False)

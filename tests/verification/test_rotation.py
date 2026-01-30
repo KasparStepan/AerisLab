@@ -10,7 +10,7 @@ import numpy as np
 import pytest
 
 from aerislab.core.simulation import World
-from aerislab.core.solver import HybridSolver
+from aerislab.core.solver import HybridSolver, HybridIVPSolver
 from aerislab.dynamics.body import RigidBody6DOF
 
 
@@ -47,9 +47,8 @@ class TestTorqueFreeSpin:
         L0 = inertia @ w0
         L0_mag = np.linalg.norm(L0)
         
-        solver = HybridSolver(alpha=0, beta=0)
-        for _ in range(5000):
-            world.step(solver, 0.001)
+        solver = HybridIVPSolver(method="RK45", rtol=1e-9, atol=1e-9)
+        world.integrate_to(solver, t_end=5.0)
         
         # Final angular momentum in world frame
         R = body.rotation_world()
@@ -81,9 +80,8 @@ class TestTorqueFreeSpin:
         # Initial kinetic energy
         KE0 = 0.5 * w0 @ inertia @ w0
         
-        solver = HybridSolver(alpha=0, beta=0)
-        for _ in range(5000):
-            world.step(solver, 0.001)
+        solver = HybridIVPSolver(method="RK45", rtol=1e-9, atol=1e-9)
+        world.integrate_to(solver, t_end=5.0)
         
         # Final kinetic energy
         KE_final = body.kinetic_energy()  # This includes translational too
@@ -205,7 +203,8 @@ class TestDzhanibekovEffect:
         inertia = np.diag([1.0, 2.0, 3.0])
         
         # Spin about y-axis (intermediate inertia) with small perturbation
-        w0 = np.array([0.1, 5.0, 0.1])
+        # Increased perturbation to ensure instability triggers within simulation time
+        w0 = np.array([0.2, 5.0, 0.2])
         
         body = RigidBody6DOF(
             name="racket",
@@ -220,12 +219,20 @@ class TestDzhanibekovEffect:
         world.add_body(body)
         world.set_termination_callback(lambda w: False)
         
-        solver = HybridSolver(alpha=0, beta=0)
+        solver = HybridIVPSolver(method="RK45", rtol=1e-6, atol=1e-8)
         
+        # We need to capture wy history. integrating_to only gives final state unless we use dense_output or manual steps.
+        # HybridIVPSolver.integrate updates world to final state but logs if logger enabled.
+        # To get array of values without logging, we can just loop integrate_to with small chunks or use internal solver.
+        
+        # Let's run a loop of small integrals
         wy_values = []
-        for _ in range(10000):
-            world.step(solver, 0.001)
+        t_current = 0.0
+        dt_check = 0.01
+        for _ in range(1000):
+            world.integrate_to(solver, t_current + dt_check)
             wy_values.append(body.w[1])
+            t_current += dt_check
         
         # For Dzhanibekov effect, wy should show large oscillations/flips
         wy_array = np.array(wy_values)

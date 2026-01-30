@@ -227,7 +227,12 @@ class TestConstantAcceleration:
         
         world = World(ground_z=-1000, payload_index=0)
         world.add_body(body)
-        world.add_global_force(Gravity(force))  # Using gravity as constant force
+        # Custom constant force to avoid Gravity (acceleration) confusion
+        class ConstantForce:
+            def __init__(self, f_vec): self.f = f_vec
+            def apply(self, body, t): body.apply_force(self.f)
+            
+        world.add_global_force(ConstantForce(force))
         world.set_termination_callback(lambda w: False)
         
         solver = HybridSolver(alpha=0, beta=0)
