@@ -620,6 +620,7 @@ class World:
             plot_forces,
             plot_trajectory_3d,
             plot_velocity_and_acceleration,
+            plot_force_breakdown,
         )
 
         csv_path = self.output_path / "logs" / "simulation.csv"
@@ -649,12 +650,18 @@ class World:
                 show=show,
                 magnitude=False
             )
-            # Forces
+            # Forces (Components)
             plot_forces(
                 str(csv_path), name,
                 save_path=str(plots_dir / f"{name}_forces.png"),
                 show=show,
                 magnitude=False
+            )
+            # Detailed Force Breakdown (New)
+            plot_force_breakdown(
+                str(csv_path), name,
+                save_path=str(plots_dir / f"{name}_force_breakdown.png"),
+                show=show
             )
 
         print(f"[World] Plots saved to: {plots_dir}")

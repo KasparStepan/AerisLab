@@ -10,6 +10,8 @@ import csv
 from pathlib import Path
 from typing import Any, TextIO
 
+import numpy as np
+
 from aerislab.dynamics.body import RigidBody6DOF
 
 
@@ -96,6 +98,7 @@ class CSVLogger:
         self._file: TextIO | None = None
         self._writer: Any = None  # csv.writer is a function, not a type
         self._header_written = False
+        self._force_columns: dict[str, list[str]] = {}
 
         # Ensure parent directory exists
         self.filepath.parent.mkdir(parents=True, exist_ok=True)
@@ -140,6 +143,7 @@ class CSVLogger:
         }
 
         for b in world.bodies:
+            # Standard fields
             for field in self.fields:
                 if field in field_components:
                     for component in field_components[field]:
@@ -152,6 +156,14 @@ class CSVLogger:
                             hdr.append(f"{b.name}.{field}_{i}")
                     else:
                         hdr.append(f"{b.name}.{field}")
+            
+            # Detailed force categories
+            # Detect available categories from first step
+            categories = sorted(b.force_categories.keys())
+            self._force_columns[b.name] = categories
+            for cat in categories:
+                for axis in ["x", "y", "z"]:
+                    hdr.append(f"{b.name}.f_{cat}_{axis}")
 
         if self._writer:
             self._writer.writerow(hdr)
@@ -184,6 +196,7 @@ class CSVLogger:
         # Build row
         row = [f"{world.t:.10f}"]  # High precision time
         for b in world.bodies:
+            # Standard fields
             for field in self.fields:
                 val = self._get_val(b, field)
                 if val is not None:
@@ -193,6 +206,12 @@ class CSVLogger:
                     else:
                         # Scalar field
                         row.append(f"{val:.10e}")
+            
+            # Detailed force categories
+            if b.name in self._force_columns:
+                for cat in self._force_columns[b.name]:
+                    f_val = b.force_categories.get(cat, np.zeros(3))
+                    row.extend(f"{v:.10e}" for v in f_val)
 
         self._buffer.append(row)
 

@@ -72,7 +72,7 @@ class Gravity:
 
     def apply(self, body: RigidBody6DOF, t: float | None = None) -> None:
         """Apply gravitational force F = m * g to body center of mass."""
-        body.apply_force(body.mass * self.g)
+        body.apply_force(body.mass * self.g, label="gravity")
 
 
 class Drag:
@@ -164,11 +164,11 @@ class Drag:
 
             # F = -0.5 * ρ * Cd * A * |v| * v
             f = -0.5 * self.rho * Cd * A * speed * v
-            body.apply_force(f)
+            body.apply_force(f, label="aerodynamics")
 
         elif self.mode == "linear":
             # F = -k * v
-            body.apply_force(-self.k_linear * v)
+            body.apply_force(-self.k_linear * v, label="aerodynamics")
 
 
 class ParachuteDrag(Drag):
@@ -286,7 +286,7 @@ class ParachuteDrag(Drag):
 
             # Standard quadratic drag formula
             f = -0.5 * self.rho * Cd * A * v_mag * v
-            body.apply_force(f)
+            body.apply_force(f, label="aerodynamics")
 
     def _eval_smooth_area(self, t: float, body: RigidBody6DOF) -> float:
         """
@@ -458,5 +458,5 @@ class Spring:
         f = f_spring + f_damping
 
         # Apply equal and opposite forces at attachment points
-        self.a.apply_force(+f, point_world=pa)
-        self.b.apply_force(-f, point_world=pb)
+        self.a.apply_force(+f, point_world=pa, label="spring")
+        self.b.apply_force(-f, point_world=pb, label="spring")

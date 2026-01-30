@@ -340,8 +340,9 @@ class HybridSolver:
             raise ValueError(f"Time step must be positive, got {dt}")
 
         # Assemble and solve KKT system
+        # Assemble and solve KKT system
         Minv, J, F, rhs, _ = assemble_system(bodies, constraints, self.alpha, self.beta)
-        a, _ = solve_kkt(Minv, J, F, rhs)
+        a, lam = solve_kkt(Minv, J, F, rhs)
 
         # Integrate each body
         for i, b in enumerate(bodies):
@@ -349,7 +350,18 @@ class HybridSolver:
             a_ang = a[6*i+3:6*i+6]
             b.integrate_semi_implicit(dt, a_lin, a_ang)
 
+        # Apply constraint forces for logging (F_c = J.T @ lambda)
+        if len(constraints) > 0 and len(J) > 0:
+            F_constraint_all = J.T @ lam
+            for i, b in enumerate(bodies):
+                f_c_body = F_constraint_all[6*i:6*i+6]
+                b.apply_force(f_c_body[:3], label="constraint")
+                b.apply_torque(f_c_body[3:])
+
         return a
+
+
+
 
 
 class HybridIVPSolver:
@@ -590,6 +602,13 @@ class HybridIVPSolver:
                 # Re-apply forces for consistent logging
                 for b in bodies:
                     b.clear_forces()
+                    
+                # Re-apply System Component forces (CRITICAL: was missing)
+                for system in world.systems:
+                    system.apply_all_forces(tk)
+                    
+                # Re-apply other forces
+                for b in bodies:
                     for fb in b.per_body_forces:
                         fb.apply(b, tk)
                 for fg in world.global_forces:
@@ -597,6 +616,18 @@ class HybridIVPSolver:
                         fg.apply(b, tk)
                 for fpair in world.interaction_forces:
                     fpair.apply_pair(tk)
+                
+                # Calculate and apply constraint forces for logging
+                if len(constraints) > 0:
+                    Minv, J, F_gen, rhs_v, _ = assemble_system(bodies, constraints, self.alpha, self.beta)
+                    _, lam = solve_kkt(Minv, J, F_gen, rhs_v)
+                    
+                    if len(J) > 0:
+                        F_constraint_all = J.T @ lam
+                        for i, b in enumerate(bodies):
+                            f_c_body = F_constraint_all[6*i:6*i+6]
+                            b.apply_force(f_c_body[:3], label="constraint")
+                            b.apply_torque(f_c_body[3:])
 
                 world.logger.log(world)
 

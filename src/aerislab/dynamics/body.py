@@ -176,6 +176,7 @@ class RigidBody6DOF:
         "inv_mass", "radius",
         "f", "tau",
         "per_body_forces",
+        "force_categories",
     )
 
     def __init__(
@@ -259,6 +260,9 @@ class RigidBody6DOF:
         # Force/torque accumulators
         self.f = np.zeros(3, dtype=np.float64)
         self.tau = np.zeros(3, dtype=np.float64)
+        
+        # Detailed Force Tracking
+        self.force_categories: dict[str, NDArray[np.float64]] = {}
 
         # Per-body force list
         self.per_body_forces: list = []
@@ -267,6 +271,7 @@ class RigidBody6DOF:
         """Reset force and torque accumulators to zero."""
         self.f.fill(0.0)
         self.tau.fill(0.0)
+        self.force_categories.clear()
 
     def rotation_world(self) -> NDArray[np.float64]:
         """
@@ -337,7 +342,8 @@ class RigidBody6DOF:
     def apply_force(
         self,
         f: NDArray[np.float64],
-        point_world: NDArray[np.float64] | None = None
+        point_world: NDArray[np.float64] | None = None,
+        label: str | None = None
     ) -> None:
         """
         Apply force to the body.
@@ -350,6 +356,9 @@ class RigidBody6DOF:
             Application point in world frame [m] (3,). If provided,
             generates torque τ = r × f where r = point_world - body_origin.
             If None, force is applied at center of mass (no torque).
+        label : str | None
+            Category label for force logging (e.g., "gravity", "aerodynamics").
+            If provided, accumulates force in self.force_categories[label].
 
         Notes
         -----
@@ -360,6 +369,11 @@ class RigidBody6DOF:
         if point_world is not None:
             r = np.asarray(point_world, dtype=np.float64) - self.p
             self.tau += np.cross(r, f)
+            
+        if label:
+            if label not in self.force_categories:
+                self.force_categories[label] = np.zeros(3, dtype=np.float64)
+            self.force_categories[label] += f
 
     def apply_torque(self, tau: NDArray[np.float64]) -> None:
         """

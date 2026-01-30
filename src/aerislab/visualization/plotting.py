@@ -418,3 +418,100 @@ def compare_trajectories(
         plt.show()
     else:
         plt.close()
+
+
+def plot_force_breakdown(
+    csv_path: str,
+    body_name: str,
+    save_path: str | None = None,
+    show: bool = False,
+    figsize: tuple = (12, 8),
+) -> None:
+    """
+    Plot detailed breakdown of forces acting on a body.
+
+    Plots magnitudes of individual force components (gravity, aerodynamics,
+    constraints, etc.) detected in the log file, alongside the total force.
+
+    Parameters
+    ----------
+    csv_path : str
+        Path to simulation CSV file
+    body_name : str
+        Name of the body to plot
+    save_path : str | None
+        If provided, save figure to this path
+    show : bool
+        If True, display the plot interactively
+    figsize : tuple
+        Figure size (width, height) in inches
+
+    Examples
+    --------
+    >>> plot_force_breakdown("sim.csv", "payload")
+    """
+    cols = _load_csv(csv_path)
+    t = cols["t"]
+    
+    # Identify available force categories
+    # Look for columns matching "{body_name}.f_{category}_x"
+    prefix = f"{body_name}.f_"
+    suffix = "_x"
+    categories = []
+    
+    for col in cols.keys():
+        if col.startswith(prefix) and col.endswith(suffix):
+            # Extract category name
+            cat = col[len(prefix):-len(suffix)]
+            if cat not in categories:
+                categories.append(cat)
+    
+    categories = sorted(categories)
+    
+    if not categories:
+        print(f"No detailed force data found for {body_name}. plotting total force only.")
+        plot_forces(csv_path, body_name, save_path, show, magnitude=True, figsize=figsize)
+        return
+
+    # Create plot
+    fig, ax = plt.subplots(figsize=figsize)
+    
+    # Plot Total Force (existing field f_x, f_y, f_z)
+    try:
+        f = {k: f"{body_name}.{k}" for k in ["f_x", "f_y", "f_z"]}
+        Fx, Fy, Fz = _get_components(cols, [f["f_x"], f["f_y"], f["f_z"]])
+        F_total = np.sqrt(Fx**2 + Fy**2 + Fz**2)
+        ax.plot(t, F_total, 'k-', linewidth=2.5, label='Total Force', alpha=0.8)
+    except KeyError:
+        pass  # Total force might not be logged if only components are?
+        
+    # Plot components
+    colors = plt.cm.tab10(np.linspace(0, 1, len(categories)))
+    
+    for i, cat in enumerate(categories):
+        cx_name = f"{body_name}.f_{cat}_x"
+        cy_name = f"{body_name}.f_{cat}_y"
+        cz_name = f"{body_name}.f_{cat}_z"
+        
+        try:
+            Cx, Cy, Cz = _get_components(cols, [cx_name, cy_name, cz_name])
+            C_mag = np.sqrt(Cx**2 + Cy**2 + Cz**2)
+            ax.plot(t, C_mag, linewidth=1.5, label=f'{cat.title()}', color=colors[i], linestyle='--')
+        except KeyError:
+            continue
+
+    ax.set_title(f'Force Breakdown: {body_name}')
+    ax.set_xlabel('Time [s]')
+    ax.set_ylabel('Force Magnitude [N]')
+    ax.legend(loc='upper right')
+    ax.grid(True, alpha=0.3)
+    
+    plt.tight_layout()
+    
+    if save_path:
+        plt.savefig(save_path, dpi=150, bbox_inches='tight')
+        
+    if show:
+        plt.show()
+    else:
+        plt.close()

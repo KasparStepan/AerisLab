@@ -854,7 +854,7 @@ class AdvancedParachute:
         """
         tval = 0.0 if t is None else float(t)
         F = self.compute_force(body, tval, dt)
-        body.apply_force(F)
+        body.apply_force(F, label="aerodynamics")
     
     def get_current_area(self) -> float:
         """Get current effective parachute area [m²]."""
