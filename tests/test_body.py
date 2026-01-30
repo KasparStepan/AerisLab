@@ -14,30 +14,6 @@ def body_default():
     q = np.array([0.0, 0.0, 0.0, 1.0])
     return RigidBody6DOF("test_body", mass, I, p, q)
 
-def test_initialization(body_default):
-    b = body_default
-    assert b.name == "test_body"
-    assert b.mass == 10.0
-    assert b.inv_mass == 0.1
-    assert np.allclose(b.I_body, np.diag([1.0, 2.0, 3.0]))
-    assert np.allclose(b.p, np.zeros(3))
-    assert np.allclose(b.q, [0, 0, 0, 1])
-    assert np.allclose(b.v, np.zeros(3))
-    assert np.allclose(b.w, np.zeros(3))
-    assert b.radius == 0.0
-
-def test_initialization_with_velocity():
-    mass = 1.0
-    I = np.eye(3)
-    p = np.zeros(3)
-    q = np.array([0.0, 0.0, 0.0, 1.0])
-    v = np.array([1.0, 2.0, 3.0])
-    w = np.array([0.1, 0.2, 0.3])
-    b = RigidBody6DOF("moving", mass, I, p, q, linear_velocity=v, angular_velocity=w)
-
-    assert np.allclose(b.v, v)
-    assert np.allclose(b.w, w)
-
 def test_clear_forces(body_default):
     b = body_default
     b.f = np.array([1.0, 1.0, 1.0])

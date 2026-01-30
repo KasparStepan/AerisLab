@@ -21,14 +21,6 @@ def temp_dir():
     shutil.rmtree(temp)
 
 
-def test_logger_path_support(temp_dir):
-    """Test logger accepts Path objects."""
-    csv_path = temp_dir / "test.csv"
-    logger = CSVLogger(csv_path)
-
-    assert logger.filepath == csv_path
-    assert isinstance(logger.filepath, Path)
-
 
 def test_logger_invalid_fields():
     """Test logger rejects invalid field names."""

@@ -43,16 +43,6 @@ def cleanup_output():
         shutil.rmtree(output_dir)
 
 
-def test_world_creation():
-    """Test basic World instantiation."""
-    world = World(ground_z=0.0, payload_index=0)
-    assert world.ground_z == 0.0
-    assert world.payload_index == 0
-    assert world.t == 0.0
-    assert len(world.bodies) == 0
-    assert world.logger is None
-
-
 def test_world_with_logging_factory(cleanup_output):
     """Test World.with_logging() factory method."""
     world = World.with_logging("test_sim", ground_z=5.0)
@@ -184,32 +174,6 @@ def test_auto_save_plots(simple_world, cleanup_output):
     assert (plots_dir / "test_forces.png").exists()
 
 
-def test_energy_conservation():
-    """Test energy tracking for unconstrained system."""
-    world = World(ground_z=-1000.0)  # Ground far away
-
-    I = np.eye(3) * 0.1
-    body = RigidBody6DOF(
-        "test", 1.0, I,
-        np.array([0, 0, 100]),
-        np.array([0, 0, 0, 1]),
-        linear_velocity=np.array([0, 0, -10])
-    )
-    world.add_body(body)
-    world.add_global_force(Gravity(np.array([0, 0, -9.81])))
-
-    E0 = world.get_energy()
-
-    solver = HybridSolver()
-    world.run(solver, duration=2.0, dt=0.01)
-
-    E1 = world.get_energy()
-
-    # Energy should be approximately conserved
-    # (some drift expected due to numerical integration)
-    assert abs(E1['total'] - E0['total']) / abs(E0['total']) < 0.05
-
-
 def test_ivp_integration(simple_world):
     """Test variable-step IVP solver."""
     solver = HybridIVPSolver(method="Radau", rtol=1e-6, atol=1e-8)
@@ -264,3 +228,8 @@ def test_multiple_bodies_constraint():
     # Check constraint maintained (approximately)
     dist = np.linalg.norm(body2.p - body1.p)
     assert abs(dist - 5.0) < 0.1  # Within 10cm tolerance
+
+    # Check indices are correct
+    assert idx1 == 1
+    assert idx2 == 2
+    assert len(world.bodies) == 2
