@@ -450,7 +450,14 @@ class AdvancedParachute:
         Cd = self._get_cd(t, body)
         
         # Apply Cx factor during inflation
-        Cx = self.inflation_config.Cx if tau < 1.0 else 1.0
+        if tau < 1.0:
+            Cx = self.inflation_config.Cx
+        else:
+            # Smooth decay from Cx to 1.0 to avoid discontinuity
+            # Decay over normalized time (e.g. 50% decay every 0.2 tau)
+            k_decay = 5.0
+            decay = np.exp(-k_decay * (tau - 1.0))
+            Cx = 1.0 + (self.inflation_config.Cx - 1.0) * decay
         
         q = 0.5 * self.rho * speed * speed
         F_mag = q * Cd * A * Cx

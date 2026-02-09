@@ -1,13 +1,12 @@
 """
-Example: Parachute-Payload System with Continuous Inflation Model.
+Example: Parachute-Payload System with Knacke Model.
 
 This example demonstrates how to use the new System/Component architecture
-integrated with the advanced continuous inflation parachute model and
-the high-fidelity HybridIVPSolver.
+integrated with the Knacke parachute model and the high-fidelity HybridIVPSolver.
 
 Key Features:
 - System/Component architecture for defining the vehicle
-- AdvancedParachute model (Continuous Inflation) for realistic opening loads
+- AdvancedParachute model (Knacke) for opening load factors
 - HybridIVPSolver (Radau) for stiff dynamics integration
 - Custom ModernParachute component implementation
 """
@@ -44,9 +43,9 @@ class ModernParachute(Component):
         name: str,
         body: RigidBody6DOF,
         diameter: float,
-        model_type: str = "continuous_inflation",
-        activation_altitude: float = 300.0,
-        activation_velocity: float = 30.0
+        model_type: str = "knacke",
+        activation_altitude: float = 0.0,
+        activation_velocity: float = 40.0
     ):
         super().__init__(name, body)
         
@@ -56,7 +55,7 @@ class ModernParachute(Component):
             model=model_type,
             activation_altitude=activation_altitude,
             activation_velocity=activation_velocity,
-            Cd=0.85,  # Typical for round parachute
+            Cd=0.2,  # Typical for round parachute
             porosity=0.05
         )
         
@@ -84,7 +83,7 @@ def run_simulation():
     # 1. Create the Physics World
     # ---------------------------
     world = World.with_logging(
-        name="continuous_inflation_demo",
+        name="knacke_demo",
         ground_z=0.0,
         payload_index=0,
         auto_save_plots=True
@@ -102,7 +101,7 @@ def run_simulation():
         name="capsule",
         mass=payload_mass,
         inertia_tensor_body=np.eye(3) * 5.0,
-        position=np.array([0, 0, 50.0]),
+        position=np.array([0, 0, 400.0]),
         orientation=np.array([0, 0, 0, 1]),
         radius=0.5,
         linear_velocity=np.array([0, 0, 0])
@@ -113,9 +112,9 @@ def run_simulation():
         name="canopy",
         mass=parachute_mass,
         inertia_tensor_body=np.eye(3) * 1.0,
-        position=np.array([0, 0, 50.0 + tether_length]),
+        position=np.array([0, 0, 400.0 + tether_length]),
         orientation=np.array([0, 0, 0, 1]),
-        radius=0.3,  # Packed radius
+        radius=0.1,  # Packed radius
         linear_velocity=np.array([0, 0, 0])
     )
 
@@ -131,14 +130,14 @@ def run_simulation():
         area=0.8
     )
     
-    # Component B: Parachute using our custom wrapper and Continuous Inflation model
+    # Component B: Parachute using our custom wrapper and Knacke model
     parachute_comp = ModernParachute(
         name="parachute_comp",
         body=body_chute,
         diameter=3.0,  # 8m diameter
-        model_type="continuous_inflation",
-        activation_altitude=200.0,  # Deploy at 800m
-        activation_velocity=30.0
+        model_type="knacke",
+        activation_altitude=200.0,  # Deploy at 200m
+        activation_velocity=100.0
     )
     
     # Add components to system
@@ -179,7 +178,7 @@ def run_simulation():
     )
     
     print("="*60)
-    print("Running Continuous Inflation System Demo")
+    print("Running Knacke System Demo")
     print(f"Model: {parachute_comp.model.model_type.name}")
     print(f"Solver: {solver.method} (IVP)")
     print("="*60)
