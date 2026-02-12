@@ -32,12 +32,19 @@ dependencies = [
 
 [project.optional-dependencies]
 dev = [
+    "aerislab[viz]",
     "pytest>=7.0",
     "pytest-cov>=3.0",
     "pytest-benchmark>=4.0",
     "ruff>=0.1.0",
     "mypy>=1.0",
+
     "types-numpy",
+]
+viz = [
+    "streamlit>=1.0",
+    "plotly>=5.0",
+    "kaleido>=0.2",
 ]
 
 [project.urls]
