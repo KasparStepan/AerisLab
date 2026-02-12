@@ -496,7 +496,13 @@ class World:
 
         return stop
 
-    def run(self, solver: HybridSolver, duration: float, dt: float) -> None:
+    def run(
+        self,
+        solver: HybridSolver,
+        duration: float,
+        dt: float,
+        log_interval: float = 1.0
+    ) -> None:
         """
         Run fixed-step simulation for specified duration.
 
@@ -508,6 +514,8 @@ class World:
             Simulation duration [s]
         dt : float
             Fixed time step [s]
+        log_interval : float
+            Interval [s] for printing progress to terminal. Set to <= 0 to disable.
 
         Notes
         -----
@@ -516,10 +524,13 @@ class World:
         - Flushes logger and generates plots (if enabled) when complete
         """
         t_end = self.t + float(duration)
+        last_log_time = self.t
 
         # Log initial state
         if self.logger is not None:
             self.logger.log(self)
+
+        print(f"[World] Starting fixed-step simulation: {duration}s duration, dt={dt}s")
 
         try:
             while self.t < t_end:
@@ -528,6 +539,16 @@ class World:
                     if self.t_touchdown is not None:
                         print(f"        Touchdown detected at t={self.t_touchdown:.6f}s")
                     break
+                
+                # Terminal Progress Log
+                if log_interval > 0 and (self.t - last_log_time) >= log_interval:
+                    # Basic status: Time and Altitude of payload
+                    payload = self.bodies[self.payload_index]
+                    z = payload.p[2]
+                    vz = payload.v[2]
+                    print(f"[World] t={self.t:6.2f}s | Payload z={z:8.2f}m, vz={vz:6.2f}m/s")
+                    last_log_time = self.t
+
         finally:
             # Ensure data is written
             if self.logger:
@@ -540,7 +561,7 @@ class World:
 
     # --- Variable-Step Integration ---
 
-    def integrate_to(self, solver: HybridIVPSolver, t_end: float):
+    def integrate_to(self, solver: HybridIVPSolver, t_end: float, log_interval: float = 1.0):
         """
         Integrate with adaptive-step IVP solver.
 
@@ -550,18 +571,55 @@ class World:
             Variable-step solver
         t_end : float
             Final time [s]
+        log_interval : float
+            Interval [s] for printing progress. Set <= 0 to disable.
 
         Returns
         -------
         OdeResult
-            scipy integration result object
+            scipy integration result object (merged if chunked)
 
         Notes
         -----
         - Automatically logs trajectory at solver time points
         - Auto-generates plots if enabled
         """
-        sol = solver.integrate(self, t_end)
+        if log_interval <= 0:
+            # Single shot integration
+            print(f"[World] Starting variable-step integration: {t_end - self.t:.2f}s duration")
+            sol = solver.integrate(self, t_end)
+        else:
+            # Chunked integration for progress updates
+            print(f"[World] Starting variable-step integration: {t_end - self.t:.2f}s duration")
+            current_t = self.t
+            
+            # We need to accumulate results if we want to return a full solution object
+            # But the primary output is the CSV log. The return value is rarely used by end users.
+            # Let's just return the last solution object for now, or a dummy.
+            
+            final_sol = None
+            
+            while current_t < t_end:
+                next_t = min(current_t + log_interval, t_end)
+                
+                # Run solver for this chunk
+                sol = solver.integrate(self, next_t)
+                final_sol = sol
+                
+                # Check for termination (ground contact)
+                if sol.status != 0: # 1 means event occurred (touchdown)
+                     if sol.t_events and len(sol.t_events[0]) > 0:
+                         print(f"[World] Touchdown detected at t={sol.t_events[0][0]:.6f}s")
+                     break
+                
+                # Update progress
+                current_t = self.t # solver updates world.t
+                
+                # Terminal Log
+                payload = self.bodies[self.payload_index]
+                z = payload.p[2]
+                vz = payload.v[2]
+                print(f"[World] t={current_t:6.2f}s | Payload z={z:8.2f}m, vz={vz:6.2f}m/s")
 
         if self.logger is not None:
             self.logger.flush()
@@ -571,7 +629,7 @@ class World:
             print("[World] Auto-generating plots...")
             self.save_plots()
 
-        return sol
+        return final_sol
 
     # --- Plotting and Analysis ---
 

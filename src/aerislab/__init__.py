@@ -48,6 +48,7 @@ from aerislab.dynamics.forces import Drag, Gravity, ParachuteDrag, Spring
 
 # Logging
 from aerislab.logger import CSVLogger
+from aerislab.api.scenario import Scenario
 
 __all__ = [
     # Version
@@ -73,5 +74,8 @@ __all__ = [
     "DeploymentState",
     "System",
     # Logging
+    # Logging
     "CSVLogger",
+    # API
+    "Scenario",
 ]
