@@ -213,3 +213,7 @@ venv/
 
 # Simulation output directory
 output/
+
+# Agent settings
+.agent/
+agent/
