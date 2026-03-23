@@ -340,7 +340,6 @@ class HybridSolver:
             raise ValueError(f"Time step must be positive, got {dt}")
 
         # Assemble and solve KKT system
-        # Assemble and solve KKT system
         Minv, J, F, rhs, _ = assemble_system(bodies, constraints, self.alpha, self.beta)
         a, lam = solve_kkt(Minv, J, F, rhs)
 

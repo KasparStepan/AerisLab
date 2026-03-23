@@ -74,7 +74,6 @@ __all__ = [
     "DeploymentState",
     "System",
     # Logging
-    # Logging
     "CSVLogger",
     # API
     "Scenario",

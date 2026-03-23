@@ -17,7 +17,7 @@ class MockRigidBody:
         self.f = np.zeros(3)
         self.tau = np.zeros(3)
 
-    def apply_force(self, f, point_world=None):
+    def apply_force(self, f, point_world=None, label=None):
         self.applied_forces.append((f, point_world))
         self.f += f
 

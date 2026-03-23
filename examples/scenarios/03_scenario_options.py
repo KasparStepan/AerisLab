@@ -4,7 +4,7 @@ Demonstrates the new ease-of-use features for setting up a scenario.
 """
 
 from aerislab import Scenario
-from aerislab.components import Payload, Parachute
+from aerislab.components.standard import Payload, Parachute
 
 def run_demo():
     print("\n--- Running Scenario with Custom Options ---")

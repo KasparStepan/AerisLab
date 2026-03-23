@@ -34,8 +34,6 @@ class Scenario:
         
         # Default gravity
         self.world.add_global_force(Gravity(np.array([0, 0, -9.81])))
-
-        self.world.add_global_force(Gravity(np.array([0, 0, -9.81])))
         
         # Solver defaults
         self._solver_params = SOLVER_PRESETS["default"]

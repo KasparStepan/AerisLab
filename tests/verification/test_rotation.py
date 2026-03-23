@@ -225,18 +225,23 @@ class TestDzhanibekovEffect:
         # HybridIVPSolver.integrate updates world to final state but logs if logger enabled.
         # To get array of values without logging, we can just loop integrate_to with small chunks or use internal solver.
         
-        # Let's run a loop of small integrals
-        wy_values = []
-        t_current = 0.0
-        dt_check = 0.01
-        for _ in range(1000):
-            world.integrate_to(solver, t_current + dt_check)
-            wy_values.append(body.w[1])
-            t_current += dt_check
-        
-        # For Dzhanibekov effect, wy should show large oscillations/flips
-        wy_array = np.array(wy_values)
+        # Use fixed-step solver for efficiency (avoids 1000 separate IVP calls)
+        from aerislab.core.solver import HybridSolver
+        fixed_solver = HybridSolver()
+        wy_body_values = []
+        dt = 0.001
+        for _ in range(10000):
+            world.step(fixed_solver, dt)
+            # Check body-frame angular velocity (world-frame w stays roughly
+            # constant because L is conserved; the Dzhanibekov flip is visible
+            # in the body frame where the intermediate axis tumbles)
+            R = body.rotation_world()
+            w_body = R.T @ body.w
+            wy_body_values.append(w_body[1])
+
+        # For Dzhanibekov effect, body-frame wy should show large oscillations/flips
+        wy_array = np.array(wy_body_values)
         wy_range = np.max(wy_array) - np.min(wy_array)
-        
+
         # Intermediate axis should show instability (large range)
         assert wy_range > 2.0, f"Expected instability not observed: range = {wy_range:.3f}"
