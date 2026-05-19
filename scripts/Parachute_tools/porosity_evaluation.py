@@ -6,6 +6,11 @@ import matplotlib.pyplot as plt
 DATA_FILE = Path(__file__).parent / "Permeability_MIL-C-7020-III.csv"
 IMAGE_FILE = Path(__file__).parent / "permeability_fit.png"
 
+FABRIC_THICKNESS = 6*10**-5 # m, thickness of fabric used on Proto Parachute
+AIR_DYNAMIC_VISCOSITY = 1.81*10**-5 # kg/(m·s), dynamic viscosity of air at room temperature
+E_POROSITY = 1.0 # Porosity of the fabric, estimated from literature
+AIR_DENSITY = 1.225 # kg/m³, density of air at sea level
+
 def fit_quadratic(x: np.ndarray, y: np.ndarray, through_origin: bool = True) -> np.ndarray:
 
     if through_origin:
@@ -43,8 +48,13 @@ def main() -> None:
     a, b, c = fit_quadratic(x, y, through_origin=True)
     y_pred = a * x**2 + b * x + c
 
+    permeability = FABRIC_THICKNESS * AIR_DYNAMIC_VISCOSITY / b
+    forchheimer_factor = (a * np.sqrt(permeability)) / (AIR_DYNAMIC_VISCOSITY * AIR_DENSITY * E_POROSITY)
+
     print(f"Model:  v(ΔP) = {a:.6e}·ΔP² + {b:.6e}·ΔP + {c:.6e}")
     print(f"R²    : {root_mean_square_error(y, y_pred):.6f}")
+    print(f"Permeability: {permeability:.6e} m²")
+    print(f"Forchheimer Factor: {forchheimer_factor:.6e} m⁻¹")
     plot_comparison(x, y, a, b, c)
 
 
