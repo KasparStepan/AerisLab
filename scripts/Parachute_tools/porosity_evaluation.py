@@ -27,8 +27,9 @@ def plot_comparison(x: np.ndarray, y: np.ndarray, a: float, b: float, c: float) 
     plt.xlabel("Differential Pressure (Pa)")
     plt.ylabel("Air Permeability (m/s)")
     plt.title("Air Permeability vs. Differential Pressure")
+    plt.yscale("log")
     plt.legend()
-    plt.grid()
+    plt.grid(which="both")
     plt.savefig(IMAGE_FILE)
     
     
