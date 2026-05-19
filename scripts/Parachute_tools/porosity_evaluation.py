@@ -4,6 +4,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 DATA_FILE = Path(__file__).parent / "Permeability_MIL-C-7020-III.csv"
+IMAGE_FILE = Path(__file__).parent / "permeability_fit.png"
 
 def fit_quadratic(x: np.ndarray, y: np.ndarray, through_origin: bool = True) -> np.ndarray:
 
@@ -28,7 +29,8 @@ def plot_comparison(x: np.ndarray, y: np.ndarray, a: float, b: float, c: float) 
     plt.title("Air Permeability vs. Differential Pressure")
     plt.legend()
     plt.grid()
-    plt.show()
+    plt.savefig(IMAGE_FILE)
+    
     
 
 
