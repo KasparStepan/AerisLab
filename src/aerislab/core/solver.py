@@ -61,11 +61,13 @@ def assemble_system(
     constraints : List[Constraint]
         List of all constraints (joints, distance constraints, etc.)
     alpha : float
-        Baumgarte position stabilization parameter [1/s].
-        Typical range: 1-10. Higher values → stronger correction but may cause instability.
+        Baumgarte damping rate [1/s] — the gain on the velocity error Ċ=J·v
+        in C̈ + 2α·Ċ + β²·C = 0. Larger α = stronger damping of drift.
     beta : float
-        Baumgarte velocity stabilization parameter [-].
-        Typical range: 0.1-1.0. Usually β < α for stability.
+        Baumgarte natural frequency [1/s] — the gain on the position error C.
+        The constraint error relaxes as a damped oscillator; it is critically
+        damped when α = β (overdamped α>β, underdamped α<β). α=β=0 disables
+        stabilization, leaving the pure dynamic constraint J·a = -J̇·v.
 
     Returns
     -------
@@ -82,11 +84,15 @@ def assemble_system(
 
     Notes
     -----
-    Baumgarte stabilization:
-        rhs = -(1 + β) * J*v - α * C
+    Baumgarte stabilization forces the constraint error to obey the damped
+    oscillator C̈ + 2α·Ċ + β²·C = 0. Substituting C̈ = J·a + J̇·v gives the
+    acceleration-level right-hand side:
 
-    where C is the constraint violation vector. This adds feedback terms
-    to drive constraint violations toward zero.
+        rhs = -J̇·v - 2α·(J·v) - β²·C
+
+    The -J̇·v term is the physical (centripetal/Coriolis) acceleration bias;
+    the 2α and β² terms are feedback that drives any drift in C and Ċ to zero.
+    Critically damped at α = β.
 
     References
     ----------
@@ -144,9 +150,10 @@ def assemble_system(
         # Constraint violation
         C = c.evaluate()
 
-        # Acceleration-level constraint Ja = -J̇v, plus Baumgarte stabilization:
-        #   rhs = -J̇v - (1+β)*Jv - α*C
-        rhs[row:row+r] = -Jdotv - (1.0 + beta) * Jv - alpha * C
+        # Acceleration-level constraint Ja = -J̇v with standard Baumgarte
+        # stabilization, i.e. forcing C̈ + 2α·Ċ + β²·C = 0:
+        #   rhs = -J̇v - 2α·(Jv) - β²·C        (critically damped at α = β)
+        rhs[row:row+r] = -Jdotv - 2.0 * alpha * Jv - (beta * beta) * C
         row += r
 
     return Minv, J, F, rhs, v
@@ -270,19 +277,19 @@ class HybridSolver:
     Parameters
     ----------
     alpha : float
-        Baumgarte position correction parameter [1/s].
-        Recommended range: 1-10. Higher values provide stronger constraint
-        enforcement but may cause instability. Use lower values for stiff systems.
+        Baumgarte damping rate [1/s] (gain on the velocity error Ċ).
     beta : float
-        Baumgarte velocity correction parameter [-].
-        Recommended range: 0.1-1.0. Typically β ≈ 0.2*α for good stability.
+        Baumgarte natural frequency [1/s] (gain on the position error C).
+        Constraint error obeys C̈ + 2α·Ċ + β²·C = 0; critically damped at
+        α = β. A reasonable default is α = β on the order of a few / dt.
+        α = β = 0 disables stabilization (pure J·a = -J̇·v).
 
     Attributes
     ----------
     alpha : float
-        Position stabilization parameter
+        Damping-rate stabilization parameter [1/s]
     beta : float
-        Velocity stabilization parameter
+        Natural-frequency stabilization parameter [1/s]
 
     Notes
     -----
@@ -296,7 +303,7 @@ class HybridSolver:
 
     Examples
     --------
-    >>> solver = HybridSolver(alpha=5.0, beta=1.0)
+    >>> solver = HybridSolver(alpha=5.0, beta=5.0)  # critically damped (α = β)
     >>> world = World(...)
     >>> for _ in range(num_steps):
     ...     world.step(solver, dt=0.01)
@@ -392,9 +399,10 @@ class HybridIVPSolver:
         Maximum allowed step size [s]. None for unlimited. Use to prevent
         overshooting fast dynamics.
     alpha : float
-        Baumgarte position stabilization [1/s]
+        Baumgarte damping rate [1/s] (gain on velocity error Ċ)
     beta : float
-        Baumgarte velocity stabilization [-]
+        Baumgarte natural frequency [1/s] (gain on position error C);
+        constraint error obeys C̈ + 2α·Ċ + β²·C = 0, critically damped at α = β
 
     Attributes
     ----------
@@ -407,9 +415,9 @@ class HybridIVPSolver:
     max_step : float | None
         Maximum step size
     alpha : float
-        Position stabilization parameter
+        Damping-rate stabilization parameter [1/s]
     beta : float
-        Velocity stabilization parameter
+        Natural-frequency stabilization parameter [1/s]
 
     Notes
     -----
