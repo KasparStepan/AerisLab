@@ -302,6 +302,45 @@ class RigidBody6DOF:
         """
         return ScR.from_quat(self.q).as_matrix()
 
+    def to_body(self, vec_world: NDArray[np.float64]) -> NDArray[np.float64]:
+        """
+        Rotate a world-frame vector into the body frame: v_body = Rᵀ · v_world.
+
+        The single, canonical place to convert into the body frame. Use this
+        when computing orientation-dependent forces (aero angle of attack, rotor
+        thrust, etc.) so the frame convention lives in exactly one spot.
+
+        Parameters
+        ----------
+        vec_world : NDArray[np.float64]
+            Vector expressed in the world frame (3,).
+
+        Returns
+        -------
+        NDArray[np.float64]
+            The same vector expressed in the body frame (3,).
+        """
+        return self.rotation_world().T @ np.asarray(vec_world, dtype=np.float64)
+
+    def to_world(self, vec_body: NDArray[np.float64]) -> NDArray[np.float64]:
+        """
+        Rotate a body-frame vector into the world frame: v_world = R · v_body.
+
+        Inverse of :meth:`to_body`. Use this to map a body-frame force/moment
+        back to the world frame before applying it (state is stored world-frame).
+
+        Parameters
+        ----------
+        vec_body : NDArray[np.float64]
+            Vector expressed in the body frame (3,).
+
+        Returns
+        -------
+        NDArray[np.float64]
+            The same vector expressed in the world frame (3,).
+        """
+        return self.rotation_world() @ np.asarray(vec_body, dtype=np.float64)
+
     def inertia_world(self) -> NDArray[np.float64]:
         """
         Compute inertia tensor in world frame.
