@@ -134,15 +134,19 @@ def assemble_system(
         J[row:row+r, 6*i:6*i+6] = Jloc[:, 0:6]
         J[row:row+r, 6*j:6*j+6] = Jloc[:, 6:12]
 
-        # Constraint velocity: Jv
+        # Constraint velocity: Ċ = Jv
         v_loc = np.concatenate([v[6*i:6*i+6], v[6*j:6*j+6]])
         Jv = Jloc @ v_loc  # (r,)
+
+        # Acceleration bias: J̇v (centripetal/Coriolis term, see Constraint.jdot_v)
+        Jdotv = c.jdot_v()
 
         # Constraint violation
         C = c.evaluate()
 
-        # Baumgarte stabilization: rhs = -(1+β)*Jv - α*C
-        rhs[row:row+r] = -(1.0 + beta) * Jv - alpha * C
+        # Acceleration-level constraint Ja = -J̇v, plus Baumgarte stabilization:
+        #   rhs = -J̇v - (1+β)*Jv - α*C
+        rhs[row:row+r] = -Jdotv - (1.0 + beta) * Jv - alpha * C
         row += r
 
     return Minv, J, F, rhs, v
