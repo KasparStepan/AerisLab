@@ -143,6 +143,8 @@ class CSVLogger:
         }
 
         for b in world.bodies:
+            if getattr(b, "fixed", False):
+                continue  # immovable anchors (e.g. WORLD) are constant; skip
             # Standard fields
             for field in self.fields:
                 if field in field_components:
@@ -196,6 +198,8 @@ class CSVLogger:
         # Build row
         row = [f"{world.t:.10f}"]  # High precision time
         for b in world.bodies:
+            if getattr(b, "fixed", False):
+                continue  # keep anchors out of the log (matches header)
             # Standard fields
             for field in self.fields:
                 val = self._get_val(b, field)

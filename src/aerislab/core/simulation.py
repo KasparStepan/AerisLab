@@ -125,6 +125,7 @@ class World:
         self.global_forces: list = []
         self.interaction_forces: list[Spring] = []
         self.constraints: list[Constraint] = []
+        self._world_index: int | None = None  # lazy WORLD anchor, see .WORLD
         self.payload_index = int(payload_index)
         self.ground_z = float(ground_z)
         self.t = 0.0
@@ -290,6 +291,33 @@ class World:
             stacklevel=2
         )
         self.logger = logger
+
+    @property
+    def WORLD(self) -> int:  # noqa: N802 - constant-style accessor for the world index
+        """
+        Index of the implicit, immovable world-frame anchor body.
+
+        Created lazily on first access: a ``fixed=True`` body at the origin is
+        appended to ``self.bodies`` and its index cached. Use it to pin a DOF in
+        absolute space without faking a heavy anchor, e.g.::
+
+            DistanceConstraint(world.bodies, world.WORLD, bob, ...)
+
+        Because it is appended (never inserted), all previously assigned body
+        indices and ``payload_index`` remain valid. The body never moves and is
+        excluded from logging/plots.
+        """
+        if self._world_index is None:
+            anchor = RigidBody6DOF(
+                name="__world__",
+                mass=0.0,
+                inertia_tensor_body=np.eye(3),
+                position=np.zeros(3),
+                orientation=np.array([0.0, 0.0, 0.0, 1.0]),
+                fixed=True,
+            )
+            self._world_index = self.add_body(anchor)
+        return self._world_index
 
     def add_body(self, body: RigidBody6DOF) -> int:
         """
@@ -496,12 +524,126 @@ class World:
 
         return stop
 
+    def _constraint_label(self, c: Constraint) -> str:
+        """Human-readable label for diagnostics, e.g. 'DistanceConstraint(pivot↔bob)'."""
+        try:
+            idx = c.index_map()
+            names = []
+            for k in idx:
+                nm = self.bodies[k].name if 0 <= k < len(self.bodies) else f"#{k}"
+                names.append("WORLD" if k == self._world_index else nm)
+            return f"{type(c).__name__}({'↔'.join(names)})"
+        except Exception:
+            return type(c).__name__
+
+    def validate_constraints(
+        self, strict: bool = False, tol: float = 1e-9
+    ) -> dict:
+        """
+        Static well-posedness check of the assembled constraint set.
+
+        Runs once at the current state and reports authoring problems that would
+        otherwise surface as silent-wrong results or a mid-run singular solve:
+
+        - **Rank deficiency** of the Schur complement ``A = J·M⁻¹·Jᵀ`` (the
+          matrix that must be invertible). This catches redundant/conflicting
+          constraints *and* constraints acting only on fixed bodies — both make
+          ``A`` singular even when ``J`` has full row rank.
+        - **Initial-condition consistency**: ``‖C(q₀)‖`` and ``‖J·v₀‖`` per
+          constraint, so a lock that disagrees with the starting state is caught.
+        - **Per-body DOF accounting** (rows consumed vs. 6 DOF).
+
+        Important: rank is configuration-dependent — passing here does *not*
+        prove the system stays non-singular for all time (a pose can go singular
+        mid-run). The runtime conditioning guard in ``solve_kkt`` remains the
+        backstop for dynamic singularities. This check is for authoring errors.
+
+        Parameters
+        ----------
+        strict : bool
+            If True, raise ``RuntimeError`` when problems are found instead of
+            only warning.
+        tol : float
+            Absolute tolerance for rank and IC-residual checks.
+
+        Returns
+        -------
+        dict
+            ``{ok, n_rows, rank, deficiency, cond, issues, per_body}``.
+        """
+        from .solver import assemble_system  # local import avoids cycle at module load
+
+        issues: list[str] = []
+        if not self.constraints:
+            return {"ok": True, "n_rows": 0, "rank": 0, "deficiency": 0,
+                    "cond": 0.0, "issues": [], "per_body": {}}
+
+        Minv, J, _, _, v = assemble_system(self.bodies, self.constraints, 0.0, 0.0)
+        m = J.shape[0]
+
+        # --- Rank / conditioning of the Schur complement (the thing inverted) ---
+        A = J @ (Minv @ J.T)
+        rank = int(np.linalg.matrix_rank(A, tol=tol)) if m else 0
+        deficiency = m - rank
+        cond = float(np.linalg.cond(A)) if m and rank == m else float("inf")
+        if deficiency > 0:
+            issues.append(
+                f"Schur complement A is rank-deficient: rank {rank}/{m} "
+                f"(deficiency {deficiency}). Constraints are redundant, conflicting, "
+                f"or act only on fixed bodies — multipliers (reaction forces) are "
+                f"not unique."
+            )
+        elif cond > 1e10:
+            issues.append(f"Constraint system is ill-conditioned (cond(A)={cond:.2e}).")
+
+        # --- Per-constraint diagnostics: IC residuals + fixed-only detection ---
+        JMinv = J @ Minv
+        row = 0
+        per_body: dict[str, int] = {}
+        for c in self.constraints:
+            r = c.rows()
+            label = self._constraint_label(c)
+            block = slice(row, row + r)
+
+            C = np.atleast_1d(c.evaluate())
+            if np.linalg.norm(C) > tol:
+                issues.append(f"{label}: violated at start, ‖C‖={np.linalg.norm(C):.2e} "
+                              f"(initial state off the constraint manifold).")
+            Jv = J[block] @ v
+            if np.linalg.norm(Jv) > tol:
+                issues.append(f"{label}: velocity-inconsistent start, ‖J·v‖="
+                              f"{np.linalg.norm(Jv):.2e}.")
+            if np.allclose(JMinv[block], 0.0, atol=tol):
+                issues.append(f"{label}: acts only on fixed/immovable DOFs — it "
+                              f"adds {r} singular row(s) to A.")
+
+            for k in c.index_map():
+                b = self.bodies[k]
+                if not getattr(b, "fixed", False):
+                    per_body[b.name] = per_body.get(b.name, 0) + r
+            row += r
+
+        for name, used in per_body.items():
+            if used > 6:
+                issues.append(f"Body '{name}' is over-constrained: {used} rows on 6 DOF.")
+
+        ok = not issues
+        if not ok:
+            msg = "Constraint validation found issues:\n  - " + "\n  - ".join(issues)
+            if strict:
+                raise RuntimeError(msg)
+            warnings.warn(msg, RuntimeWarning, stacklevel=2)
+
+        return {"ok": ok, "n_rows": m, "rank": rank, "deficiency": deficiency,
+                "cond": cond, "issues": issues, "per_body": per_body}
+
     def run(
         self,
         solver: HybridSolver,
         duration: float,
         dt: float,
-        log_interval: float = 1.0
+        log_interval: float = 1.0,
+        validate: bool = True,
     ) -> None:
         """
         Run fixed-step simulation for specified duration.
@@ -525,6 +667,11 @@ class World:
         """
         t_end = self.t + float(duration)
         last_log_time = self.t
+
+        # Catch authoring errors (redundant/conflicting constraints, bad ICs)
+        # before integrating; warns rather than raises so existing runs proceed.
+        if validate and self.constraints:
+            self.validate_constraints(strict=False)
 
         # Log initial state
         if self.logger is not None:
@@ -691,7 +838,7 @@ class World:
             )
 
         if bodies is None:
-            bodies = [b.name for b in self.bodies]
+            bodies = [b.name for b in self.bodies if not getattr(b, "fixed", False)]
 
         print(f"[World] Generating plots for: {', '.join(bodies)}")
         for name in bodies:
