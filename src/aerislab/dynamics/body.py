@@ -173,7 +173,7 @@ class RigidBody6DOF:
     __slots__ = (
         "name", "p", "q", "v", "w",
         "mass", "I_body", "I_body_inv",
-        "inv_mass", "radius",
+        "inv_mass", "radius", "fixed",
         "f", "tau",
         "per_body_forces",
         "force_categories",
@@ -189,6 +189,7 @@ class RigidBody6DOF:
         linear_velocity: NDArray[np.float64] | None = None,
         angular_velocity: NDArray[np.float64] | None = None,
         radius: float = 0.0,
+        fixed: bool = False,
     ) -> None:
         """
         Initialize a 6-DOF rigid body.
@@ -211,41 +212,58 @@ class RigidBody6DOF:
             Initial angular velocity [rad/s] (3,). Defaults to zero.
         radius : float
             Characteristic radius for visualization [m]. Optional.
+        fixed : bool
+            If True, the body is an immovable anchor: inverse mass and inverse
+            inertia are forced to zero, so neither applied nor constraint forces
+            produce any acceleration. Mass/inertia magnitude and positive-
+            definiteness checks are skipped (they're irrelevant for a clamp).
+            This is the mechanism behind ``World.WORLD``.
 
         Raises
         ------
         ValueError
-            If mass is negative or inertia tensor is not positive definite.
+            If mass is negative, or (for a non-fixed body) the inertia tensor
+            is not positive definite.
         """
         if mass < 0:
             raise ValueError(f"Mass must be non-negative, got {mass}")
-        if mass < MIN_MASS:
-            warnings.warn(
-                f"Very small mass ({mass} kg) detected. Consider using a larger value.",
-                RuntimeWarning, stacklevel=2
-            )
 
         self.name = name
+        self.fixed = bool(fixed)
         self.mass = float(mass)
-        self.inv_mass = 0.0 if self.mass < MIN_MASS else 1.0 / self.mass
 
-        # Validate and store inertia tensor
         I = np.asarray(inertia_tensor_body, dtype=np.float64)
         if I.shape != (3, 3):
             raise ValueError(f"Inertia tensor must be 3x3, got shape {I.shape}")
 
-        # Check if inertia is positive definite
-        eigenvalues = np.linalg.eigvals(I)
-        if np.any(eigenvalues <= 0):
-            raise ValueError(
-                f"Inertia tensor must be positive definite. Got eigenvalues: {eigenvalues}"
-            )
+        if self.fixed:
+            # Immovable anchor: zero inverse mass AND inverse inertia. With both
+            # zero, inv_mass_matrix_world() is the zero 6x6 block, so the KKT
+            # solve gives this body zero acceleration from any force. I_body is
+            # retained only for diagnostics (kinetic energy, etc.).
+            self.inv_mass = 0.0
+            self.I_body = I.copy()
+            self.I_body_inv = np.zeros((3, 3), dtype=np.float64)
+        else:
+            if mass < MIN_MASS:
+                warnings.warn(
+                    f"Very small mass ({mass} kg) detected. Consider using a larger value.",
+                    RuntimeWarning, stacklevel=2
+                )
+            self.inv_mass = 0.0 if self.mass < MIN_MASS else 1.0 / self.mass
 
-        self.I_body = I.copy()
-        try:
-            self.I_body_inv = np.linalg.inv(self.I_body)
-        except np.linalg.LinAlgError as e:
-            raise ValueError(f"Cannot invert inertia tensor: {e}") from e
+            # Check if inertia is positive definite
+            eigenvalues = np.linalg.eigvals(I)
+            if np.any(eigenvalues <= 0):
+                raise ValueError(
+                    f"Inertia tensor must be positive definite. Got eigenvalues: {eigenvalues}"
+                )
+
+            self.I_body = I.copy()
+            try:
+                self.I_body_inv = np.linalg.inv(self.I_body)
+            except np.linalg.LinAlgError as e:
+                raise ValueError(f"Cannot invert inertia tensor: {e}") from e
 
         # Initialize state
         self.p = np.asarray(position, dtype=np.float64).copy()
