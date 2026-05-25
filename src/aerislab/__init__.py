@@ -34,6 +34,7 @@ from aerislab.components import (
 )
 from aerislab.core.simulation import World
 from aerislab.core.solver import HybridIVPSolver, HybridSolver
+from aerislab.core.protocols import StateProvider, AuxDynamics, InertialProvider
 from aerislab.dynamics.body import RigidBody6DOF
 
 # Constraints
@@ -77,4 +78,9 @@ __all__ = [
     "CSVLogger",
     # API
     "Scenario",
+    # Protocols
+    "StateProvider",
+    "AuxDynamics",
+    "InertialProvider"
+
 ]

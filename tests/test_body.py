@@ -2,7 +2,7 @@ import numpy as np
 import pytest
 
 from aerislab.dynamics.body import RigidBody6DOF
-
+from aerislab.core.protocols import StateProvider
 
 @pytest.fixture
 def body_default():
@@ -13,6 +13,15 @@ def body_default():
     # Identity quaternion (scalar-last): [0, 0, 0, 1]
     q = np.array([0.0, 0.0, 0.0, 1.0])
     return RigidBody6DOF("test_body", mass, I, p, q)
+
+@pytest.fixture
+def body_comparison():
+    """Fixture for a body with known properties for comparison."""
+    mass = 5.0
+    I = np.diag([0.5, 1.0, 1.5])
+    p = np.array([1.0, 2.0, 3.0])
+    q = np.array([0.7071068, 0.0, 0.7071068, 0.0]) # 90 deg around Y
+    return RigidBody6DOF("comparison_body", mass, I, p, q)
 
 def test_clear_forces(body_default):
     b = body_default
@@ -118,3 +127,19 @@ def test_integrate_semi_implicit_rotation(body_default):
     expected_q = np.array([0.0, 0.0, 0.05, 1.0])
     expected_q /= np.linalg.norm(expected_q)
     assert np.allclose(b.q, expected_q)
+
+def test_state_provider_protocol(body_default):
+    b = body_default
+    assert b.num_states() == 13
+    assert isinstance(body_default, StateProvider)
+
+def test_pack_unpack_state(body_default):
+    b = body_default
+
+    out = np.empty(13, dtype=np.float64)
+
+    out = b.unpack_state(out)
+
+    assert np.allclose(out, np.concatenate([b.p, b.q, b.v, b.w]))
+
+    new = np.arra

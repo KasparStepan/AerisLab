@@ -21,6 +21,7 @@ from aerislab.dynamics.body import RigidBody6DOF
 from aerislab.dynamics.constraints import Constraint
 from aerislab.dynamics.forces import Gravity, Spring
 from aerislab.logger import CSVLogger
+from aerislab.models.atmosphere.isa import FastISA, AtmosphereModel
 
 if TYPE_CHECKING:
     from aerislab.components.system import System as SystemType
@@ -120,6 +121,7 @@ class World:
         output_dir: Path | str | None = None,
         auto_timestamp: bool = True,
         auto_save_plots: bool = False,
+        atmosphere: AtmosphereModel = None,
     ) -> None:
         self.bodies: list[RigidBody6DOF] = []
         self.global_forces: list = []
@@ -145,6 +147,9 @@ class World:
 
         # System-level management (component architecture)
         self.systems: list[SystemType] = []
+
+        # Atmosphere model (optional, for aerodynamic forces)
+        self.atmosphere = atmosphere if atmosphere is not None else FastISA()
 
         # Enable logging if name provided
         if simulation_name is not None:
